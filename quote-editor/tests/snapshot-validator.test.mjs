@@ -17,7 +17,7 @@ const sample=()=>({
   section_4_outbound_rows:[{field_name:"bol_fee",cost:8}],
   section_5_misc_rows:[]
  }});
-const validate=x=>runInNewContext(code,{$input:{all:()=>[{json:x}]},Date,Set,JSON,Number,String,Array,Error,Object,RegExp});
+const validate=x=>runInNewContext("(function(){\n"+code+"\n})()",{$input:{all:()=>[{json:x}]},Date,Set,JSON,Number,String,Array,Error,Object,RegExp});
 test("snapshot retains original inbound/outbound quantity inputs with added generation time",()=>{
  const out=validate(sample())[0].json;
  assert.equal(out.status,"validated_staging_only");
