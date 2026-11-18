@@ -1,5 +1,6 @@
 import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,preview,changeQuantity,pricingIssues,getForecastQuantity} from "./quote-editor-core.mjs";
 import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
+import {renderQuoteDocument} from "./quote-release.mjs";
 const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"Inbound",section_3_storage_rows:"Storage",section_4_outbound_rows:"Outbound",section_5_misc_rows:"Miscellaneous / VAS"};
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
@@ -44,11 +45,11 @@ function render(){
  if(!quote){wrap.append(el("p","sub","No rate card loaded. Open an authorized link or add ?demo=1 to the URL for a synthetic demonstration."));return}
  const p=preview(quote);
  let modeled=null;
- try {modeled=renderExistingN5Proposal(proposalPayload(quote)).rounded_rate_revenue;}catch{}
+ try {modeled=renderQuoteDocument(quote,rev);}catch(error){console.warn("Quote preview needs validation:",error.message)}
  const peq=Number(quote.current_payload.section_1_static?.storage_pallet_equivalent)||0;
- const operational=modeled?.total_variable_revenue;
- const customMonth=p.rows.filter(r=>r.custom&&r.billing_frequency!=="one_time"&&r.value!==null).reduce((n,r)=>n+r.value,0);
- const customOnce=p.rows.filter(r=>r.custom&&r.billing_frequency==="one_time"&&r.value!==null).reduce((n,r)=>n+r.value,0);
+ const operational=modeled?.monthlyOperational;
+ const customMonth=modeled?.monthlyOther??0;
+ const customOnce=modeled?.oneTime??0;
  $("achieved").textContent=operational!==undefined&&peq>0?fmt(Math.round(operational/peq*100)/100):"Not projected";
  $("monthly").textContent=operational!==undefined?fmt(operational+customMonth):"Not projected";
  $("oneTime").textContent=fmt(customOnce);
@@ -111,7 +112,7 @@ function proposalPayload(draft){
 function openRateCardPreview(){
  if(!quote||busy)return;
  try{
-  const output=renderExistingN5Proposal(proposalPayload(quote));
+  const output=renderQuoteDocument(quote,rev);
   if(!output||typeof output.html_body!=="string")throw Error("N5 returned no proposal");
   // The ORIGINAL N5 template includes a live 'Let's Move Forward' webhook.
   // Remove all actions in the preview ONLY; do not change N5's layout.
@@ -126,10 +127,6 @@ function openRateCardPreview(){
     if(/^on/i.test(attr.name))node.removeAttribute(attr.name);
    }
   });
-  const meta=doc.createElement("div");
-  meta.style.cssText="font:700 11px Arial,sans-serif;margin-top:8px;color:#475569;line-height:1.6";
-  meta.textContent="Generated "+stamp(quote.generated_at||quote.baseline_payload?.generated_at)+" · Revision "+rev+" · "+(quote.finalized_at?"Finalized "+stamp(quote.finalized_at):"DRAFT PREVIEW — NOT ISSUED");
-  const header=doc.querySelector('td[align="left"]');if(header)header.appendChild(meta);
   $("previewFrame").srcdoc="<!doctype html>\n"+doc.documentElement.outerHTML;
   const messages=["Original N5 email layout, showing current edited rates and opportunity-derived quantities. Links are disabled; no email is sent."];
   if(quote.reprice_requested)messages.push("Target RPP was changed, but N3 has NOT redistributed charges. Do not send this quote until recalculated.");
@@ -144,14 +141,11 @@ $("closePreview").addEventListener("click",()=>$("previewDialog").close());
 
 
 function finalizedPresentationHtml(){
- const n5=renderExistingN5Proposal(proposalPayload(quote));
+ const n5=renderQuoteDocument(quote,rev,{issuedAt:quote.finalized_at||new Date().toISOString()});
  const doc=new DOMParser().parseFromString(n5.html_body,"text/html");
  doc.querySelectorAll("script,form").forEach(node=>node.remove());
  doc.querySelectorAll("a").forEach(node=>{node.removeAttribute("href");node.style.pointerEvents="none";});
  doc.querySelectorAll("*").forEach(node=>{for(const attr of [...node.attributes])if(/^on/i.test(attr.name))node.removeAttribute(attr.name)});
- const meta=doc.createElement("div");meta.style.cssText="font:700 12px Arial,sans-serif;margin:10px 0;color:#1a202c;line-height:1.7";
- meta.textContent="Rate Card Issued: "+stamp(quote.finalized_at||new Date().toISOString())+" · Revision "+rev+" · Reference "+quote.hwk_id;
- const header=doc.querySelector('td[align="left"]');if(header)header.appendChild(meta);
  return "<!doctype html>\n"+doc.documentElement.outerHTML;
 }
 function exportPresentation(download=true){
