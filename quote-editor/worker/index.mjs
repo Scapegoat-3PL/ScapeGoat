@@ -5,7 +5,8 @@
  * REQUIRED var: EDITOR_ORIGIN (exact authorized static website origin)
  * Deployment is intentionally separate from the existing root website.
  */
-import {newDraft,operations,SECTIONS} from "../quote-editor-core.mjs";
+import {newDraft,operations,pricingIssues,SECTIONS} from "../quote-editor-core.mjs";
+import {renderQuoteDocument} from "../quote-release.mjs";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const enc=new TextEncoder();
 const sha=async x=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(x))),b=>b.toString(16).padStart(2,"0")).join("");
@@ -58,12 +59,38 @@ export default {async fetch(req,env){
    const link=env.EDITOR_ORIGIN+"/quote-editor/quote-editor.html?quote_id="+encodeURIComponent(id)+"#access_token="+encodeURIComponent(access);
    return json({quote_id:id,edit_url:link,expires_at:expires},201,allowed);
   }
-  const match=/^\/api\/quotes\/([0-9a-f-]{36})$/i.exec(url.pathname);
+  const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize)?$/i.exec(url.pathname);
   if(!match||!UUID.test(match[1]))return json({error:"Not found"},404,allowed);
   const id=match[1],link=await authorization(env,id,req);if(!link)return json({error:"Invalid or expired edit link"},401,allowed);
-  const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at&quote_id=eq."+id+"&limit=1");
+  const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
-  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,updated_at:q.updated_at});
+  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  if(match[2]==="/finalize"){
+   if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
+   if(env.ENABLE_FINALIZATION!=="true")return json({error:"Server-side finalization is not enabled for this environment"},503,allowed);
+   if(stored.status!=="draft")return json({error:"Rate card has already been finalized or is not editable"},409,allowed);
+   const requestBody=await bodyJson(req);
+   if(requestBody.delivery_method!=="presentation")return json({error:"Email delivery is not yet enabled. Use presentation copy."},422,allowed);
+   if(!Number.isInteger(requestBody.expected_revision)||requestBody.expected_revision!==stored.revision)return json({error:"Revision conflict: reload before finalizing"},409,allowed);
+   const issues=pricingIssues(stored.draft_payload);
+   if(issues.length)return json({error:"Cannot finalize: "+issues.join("; ")},422,allowed);
+   // Render and reconcile using the same N5 code as the preview, on the server.
+   // Ignore any client-supplied HTML or financial totals.
+   const issuedAt=new Date().toISOString();
+   const next=structuredClone(stored.draft_payload);
+   next.status="finalized";next.finalized_at=issuedAt;next.issued_revision=stored.revision+1;
+   let prepared;
+   try{prepared=renderQuoteDocument(next,stored.revision+1,{issuedAt,disableActions:true})}
+   catch(error){return json({error:"N5 reconciliation failed; cannot finalize"},422,allowed)}
+   if(prepared.issues.length||!Number.isFinite(prepared.monthlyTotal))return json({error:"Pricing needs reconciliation"},422,allowed);
+   next.reconciled_totals={operational:prepared.monthlyOperational,custom_monthly:prepared.monthlyOther,projected_monthly:prepared.monthlyTotal,one_time:prepared.oneTime,rpp:prepared.projectedRpp};
+   next.calculation_status="n5_reconciled";
+   const updated=await db(env,"PATCH","sg_opportunity_rate_quotes",
+    "quote_id=eq."+id+"&revision=eq."+stored.revision+"&status=eq.draft&select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html",
+    {revision:stored.revision+1,status:"finalized",draft_payload:next,finalized_at:issuedAt,final_html:prepared.html_body,editor_source:"finalize:present:"+link.link_id},"return=representation");
+   if(!updated?.length)return json({error:"Concurrent edit: reload before finalization"},409,allowed);
+   return json(output(updated[0]),200,allowed);
+  }
   if(req.method==="GET")return json(output(stored),200,allowed);
   if(req.method!=="PATCH")return json({error:"Method not allowed"},405,allowed);
   if(stored.status!=="draft")return json({error:"Quote is not an editable draft"},409,allowed);
