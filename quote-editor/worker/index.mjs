@@ -7,6 +7,7 @@
  */
 import {newDraft,operations,pricingIssues,SECTIONS} from "../quote-editor-core.mjs";
 import {renderQuoteDocument} from "../quote-release.mjs";
+import {repriceQuote} from "../n3-reprice.mjs";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const enc=new TextEncoder();
 const sha=async x=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(x))),b=>b.toString(16).padStart(2,"0")).join("");
@@ -59,12 +60,30 @@ export default {async fetch(req,env){
    const link=env.EDITOR_ORIGIN+"/?quote_id="+encodeURIComponent(id)+"#access_token="+encodeURIComponent(access);
    return json({quote_id:id,edit_url:link,expires_at:expires},201,allowed);
   }
-  const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize|\/deliver)?$/i.exec(url.pathname);
+  const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize|\/deliver|\/reprice)?$/i.exec(url.pathname);
   if(!match||!UUID.test(match[1]))return json({error:"Not found"},404,allowed);
   const id=match[1],link=await authorization(env,id,req);if(!link)return json({error:"Invalid or expired edit link"},401,allowed);
   const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
   const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&Boolean(env.EMAIL_DELIVERY_WEBHOOK)&&Boolean(env.EMAIL_DELIVERY_KEY),...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  if(match[2]==="/reprice"){
+   if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
+   if(stored.status!=="draft")return json({error:"Only drafts may be repriced"},409,allowed);
+   const requestBody=await bodyJson(req);
+   if(!Number.isInteger(requestBody.expected_revision)||requestBody.expected_revision!==stored.revision)
+     return json({error:"Revision conflict: reload before changing Target RPP"},409,allowed);
+   let next;
+   try{next=repriceQuote(stored.draft_payload,requestBody.target_rpp)}
+   catch(err){return json({error:"RPP recalculation failed: "+err.message},422,allowed)}
+   if(!next.reprice_result||!Number.isFinite(next.reprice_result.achieved_rpp))
+     return json({error:"N3 did not reconcile the resulting rate card"},422,allowed);
+   const updated=await db(env,"PATCH","sg_opportunity_rate_quotes",
+    "quote_id=eq."+id+"&revision=eq."+stored.revision+"&status=eq.draft&select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html",
+    {revision:stored.revision+1,draft_payload:next,editor_source:"n3-reprice:"+link.link_id},
+    "return=representation");
+   if(!updated?.length)return json({error:"Concurrent edit: reload before repricing"},409,allowed);
+   return json({...output(updated[0]),reprice_result:next.reprice_result},200,allowed);
+  }
   if(match[2]==="/deliver"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
    // Deliberate fail-closed gate: no outbound email until a separately reviewed
@@ -147,7 +166,12 @@ export default {async fetch(req,env){
   const payload=await bodyJson(req);
   if(!Number.isInteger(payload.expected_revision)||payload.expected_revision!==stored.revision)return json({error:"Revision conflict: reload the quote"},409,allowed);
   let edited;
-  try{edited=operations(stored.draft_payload,payload.operations)}catch(e){return json({error:e.message},422,allowed)}
+  try{
+   edited=operations(stored.draft_payload,payload.operations);
+   // Legacy PATCH clients may still submit set_target_rpp; they must not leave
+   // a stored quote permanently stuck in pending N3 state.
+   if(edited.reprice_requested)edited=repriceQuote(edited,edited.requested_target_rpp);
+  }catch(e){return json({error:e.message},422,allowed)}
   if(SECTIONS.reduce((n,s)=>n+(edited.current_payload[s]?.length||0),0)>150)return json({error:"Too many line items"},422,allowed);
   const updated=await db(env,"PATCH","sg_opportunity_rate_quotes","quote_id=eq."+id+"&revision=eq."+stored.revision+"&select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at",{revision:stored.revision+1,draft_payload:edited,editor_source:"edit-link:"+link.link_id},"return=representation");
   if(!updated?.length)return json({error:"Concurrent edit: reload the quote"},409,allowed);
