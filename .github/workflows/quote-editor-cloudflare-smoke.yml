@@ -54,3 +54,18 @@ jobs:
             echo 'API_ROUTE_RESPONDS_AS_JSON=no'
             echo 'Worker routing may not be deployed or database secrets not yet configured.'
           fi
+
+      - name: Check no-extra-project Supabase Edge Function health
+        shell: bash
+        run: |
+          set -eu
+          URL='https://dtmeaqjtreawxnlzkenq.supabase.co/functions/v1/scapegoat-quote-editor/health'
+          CODE=$(curl -sSL --max-time 18 -o /tmp/sg-edge-health -w '%{http_code}' "$URL" || true)
+          echo "Supabase Edge health HTTP $CODE"
+          cat /tmp/sg-edge-health || true
+          echo
+          if [[ "$CODE" != '200' ]]; then
+            echo 'EDGE_FUNCTION_HEALTH=not_ready'
+            exit 1
+          fi
+          echo 'EDGE_FUNCTION_HEALTH=ok'
