@@ -7,7 +7,7 @@ const dirty=d=>{d.calculation_status="needs_reconciliation";d.reconciled_totals=
 export function newDraft({quote_id,hwk_id,warehouse_id,baseline_payload}){
  if(!quote_id||!hwk_id||!warehouse_id||!baseline_payload?.section_1_static)throw Error("Missing quote identity");
  const b=copy(baseline_payload);for(const s of SECTIONS){if(!Array.isArray(b[s]))b[s]=[]}
- return {quote_id,hwk_id,warehouse_id,status:"draft",revision:1,baseline_payload:copy(b),current_payload:b,manual_overrides:{},custom_items:[],requested_target_rpp:Number(b.section_1_static.Warehouse_rpp)||null,calculation_status:"original_generation",reconciled_totals:null};
+ return {quote_id,hwk_id,warehouse_id,status:"draft",revision:1,baseline_payload:copy(b),current_payload:b,manual_overrides:{},custom_items:[],requested_target_rpp:Number(b.section_1_static.Warehouse_rpp)||null,calculation_status:"original_generation",reconciled_totals:null,generated_at:baseline_payload.generated_at||baseline_payload.section_1_static?.generated_at||new Date().toISOString(),finalized_at:null};
 }
 export function changeRate(source,section,id,rate){
  validate(source,section);const d=copy(source),row=d.current_payload[section].find(r=>r.field_name===id);
