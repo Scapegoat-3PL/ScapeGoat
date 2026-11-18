@@ -40,3 +40,19 @@ Edit links are bearer credentials and must be delivered only to the intended war
 ## Costs
 
 No new billable database branch or project. Existing Supabase, Cloudflare and GitHub usage remains subject to each service's current plan limits.
+
+
+## November 18, 2026 — N3/Aria production connection for customer acceptance testing
+
+**Implemented and published:**
+- **Target RPP now runs the frozen live N3 vSean.1 and N4 vSean.1 algorithm** through the Cloudflare/Supabase API; an N5 reconciliation then redistributes *unlocked* rates while preserving manually negotiated prices and N3's -30% downside cap. A revised quote is saved as a new audited revision. Unattainable targets display achieved RPP and block finalize until corrected.
+- Browser and synthetic demo both run N3 on **Recalculate Target RPP**, rather than leaving a pending request. Internal test execution **#11042**: Target $60/PEQ, achieved $60/PEQ, saved revision 2 and verified after reload. Temporary test nodes removed.
+- Original **Scapegoat v1 Hawkish Live** n8n workflow (ID \`XKbLZ6d9WfF1pRpN\`) now has a published fail-safe extension **after N5**: resolve selected warehouse, call the secured quote snapshot child, append **EDIT RATE CARD** and **FINALIZE RATE CARD NOW** buttons, send using the same existing Aria warehouse email. If the quote link cannot be created, send the unmodified original N5 email. Neither N3/N4 pricing nor the existing warehouse recipient was changed.
+- Quote creation is now guarded with a database trigger matching Hawk ID and selected warehouse to existing VacancyChain/Hawkish records, before issuing a secret edit link.
+- The new published [Child Workflow — Finalized Rate Card Delivery via Aria](https://seanskin.app.n8n.cloud/workflow/T7lp45jbk3RxU47v) polls the private delivery outbox once per minute. After the warehouse **explicitly chooses Send to Customer or Send to Warehouse** on a finalized quote, the API resolves both quote/warehouse and customer/warehouse address from authoritative source records, queues one immutable revision per channel, and Aria sends HTML from the saved final quote. It atomically claims the outbox item first and records the Gmail message ID and sent timestamp; unknown failures are not automatically retried.
+- Aria internal-only test execution **#11053** successfully delivered a synthetic finalized rate card to \`josh@hawkishllc.com\`; Supabase recorded \`sent\`, its timestamp, and Gmail message ID \`1a1f1102c0e920e6\`. No customer was contacted in this test.
+- The Editor's direct customer/warehouse delivery options now use server-verified recipients. Older **synthetic demo quotes will remain unable to email** because they have no real customer–warehouse association. Test email delivery from a **fresh, legitimate** Hawk ID with a matching warehouse source record.
+
+**User acceptance test still required** on an actual newly generated quote: check that warehouse email arrives with the two controls, edit one line, change Target RPP, preview N5, finalize, download/screenshare, then send one approved recipient channel through Aria. Review all displayed totals, recipient identity and Gmail sent-status before broad customer rollout.
+
+**Costs:** No paid staging branch, external service or added database. Existing Supabase/Cloudflare/n8n/Gmail service plan usage limits still apply. GitHub draft PR remains for code review and should not be merged into the original static-site main without explicit approval.
