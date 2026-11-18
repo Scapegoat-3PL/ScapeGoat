@@ -84,9 +84,13 @@ function proposalPayload(draft){
  // N5 prints field_name for the service title. Preserve custom internal IDs in
  // the editor database but use the human-readable title for the N5 presentation.
  for(const section of SECTIONS){
-  payload[section]=(payload[section]||[]).map(row=>row.custom
-   ? {...row,field_name:row.display_label||row.field_name}
-   : row);
+  payload[section]=(payload[section]||[]).map(row=>{
+   if(!row.custom)return row;
+   const cadence={per_event:"Per event",recurring:"Monthly recurring",one_time:"One-time"};
+   const billing=row.billing_unit?"Per "+row.billing_unit:"";
+   const details=[billing,cadence[row.billing_frequency]||"",row.assumption||""].filter(Boolean).join(" · ");
+   return {...row,field_name:row.display_label||row.field_name,assumption:details};
+  });
  }
  return payload;
 }
