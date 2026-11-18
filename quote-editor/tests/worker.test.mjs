@@ -59,3 +59,43 @@ test("rejects unrecognized warehouse",async()=>{
  const res=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-TEST",warehouse_id:"22222222-2222-4222-8222-222222222222",baseline_payload:initial},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
  assert.equal(res.status,422);
 });
+
+test("finalize locks and timestamps a reconciled presentation without sending email",async()=>{
+ const modeled={...initial,
+  section_1_static:{...initial.section_1_static,Hwk_Id:"HWK-FINAL",selected_warehouse_name:"Example Warehouse"},
+  section_2_inbound:{inbound_type:"Floor-loaded",has_pallet_in:false,has_container_unload:true,container_avg_inbound_qty_per_month:2,container_avg_qty_per_inbound:500,Master_Carton_In:0.68,inbound_container_min:850},
+  section_3_storage:{Storage_Qty:100,storage_pallet_equivalent:100,storage_pallet_base:20},
+  section_4_outbound:{DTC:{dtc_vol:0},B2B:{retail_vol:0},PalletOut:{pallet_vol:10,pallets_per_order:10,b2b_pallet_out:13,bol_fee:8}},
+  section_5_misc:{monthly_minimum:1000},
+  section_2_inbound_rows:[{field_name:"master_carton_in",cost:0.68},{field_name:"inbound_container_min",cost:850}],
+  section_4_outbound_rows:[{field_name:"b2b_pallet_out",cost:13},{field_name:"bol_fee",cost:8}]
+ };
+ let res=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-FINAL",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
+ assert.equal(res.status,201);const created=await res.json();
+ const bearer={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
+ const enabled={...env,ENABLE_FINALIZATION:"true"};
+ res=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:1,delivery_method:"presentation"},bearer),enabled);
+ assert.equal(res.status,200);
+ const final=await res.json();
+ assert.equal(final.status,"finalized");
+ assert.equal(final.revision,2);
+ assert.ok(final.finalized_at);
+ assert.match(final.final_html,/FINALIZED RATE CARD/);
+ assert.match(final.final_html,/Projected Charges/);
+ assert.doesNotMatch(final.final_html,/<a\s+href=/);
+ assert.equal(final.draft.reconciled_totals.operational,5080);
+ const retry=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),enabled);
+ assert.equal(retry.status,409);
+ const edit=await worker.fetch(request("/api/quotes/"+created.quote_id,"PATCH",{expected_revision:2,operations:[{type:"edit_rate",section:"section_3_storage_rows",field_name:"storage_pallet_base",rate:19}]},bearer),enabled);
+ assert.equal(edit.status,409);
+});
+test("server refuses finalization when RPP optimization remains outstanding",async()=>{
+ const modeled={...initial,section_2_inbound:{},section_3_storage:{Storage_Qty:100},section_4_outbound:{},section_5_misc:{}};
+ const createdResponse=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-RPPTEST",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
+ assert.equal(createdResponse.status,201);
+ const created=await createdResponse.json(),bearer={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
+ const edited=await worker.fetch(request("/api/quotes/"+created.quote_id,"PATCH",{expected_revision:1,operations:[{type:"set_target_rpp",rpp:55}]},bearer),env);
+ assert.equal(edited.status,200);
+ const rejected=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),{...env,ENABLE_FINALIZATION:"true"});
+ assert.equal(rejected.status,422);
+});
