@@ -25,7 +25,7 @@ input[type=number]{font-variant-numeric:tabular-nums}
 .rpp-input{width:150px}
 .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:24px}
 .metric{padding:18px;background:#fff;border:3px solid var(--ink)}.metric-label{font-weight:800;color:var(--muted);font-size:14px}.metric-value{font:800 32px Oswald,Impact,sans-serif}
-.line{display:grid;grid-template-columns:minmax(200px,2.2fr) minmax(110px,1.1fr) 130px 132px 76px;gap:12px;align-items:center;padding:12px 4px;border-bottom:1px solid #cbd5e1}
+.line{display:grid;grid-template-columns:minmax(175px,2.2fr) minmax(85px,.8fr) 105px 115px 120px 76px;gap:11px;align-items:center;padding:12px 4px;border-bottom:1px solid #cbd5e1}
 .line-head{background:#f1f5f9;text-transform:uppercase;font-size:12px;font-weight:800}.line small{display:block;color:var(--muted);font-size:11px}
 .line strong{display:block}.tag{color:#a84914;font-size:11px;font-weight:800}.money{text-align:right}
 section.rates{margin-bottom:24px}section.rates h2{margin:4px 0 10px;font-size:26px}
@@ -39,13 +39,13 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
 @media(max-width:500px){.panel{padding:13px}.line{grid-template-columns:1fr 1fr}.line .desc{grid-column:1/-1}.form-grid{grid-template-columns:1fr}.wide{grid-column:1}}
 </style></head><body><main>
 <header><div class="brand">SCAPE<b>GOAT</b>.OS</div><div class="status" id="mode">SECURE QUOTE EDITOR</div></header>
-<div class="heading"><div><div class="eyebrow">OPPORTUNITY RATE CARD</div><h1 id="title">SECURE RATE CARD</h1><div class="sub" id="revision">Use the unique editing link in your quote email</div></div><div class="row"><button id="reload" class="alt" hidden>Reload</button><button id="preview" class="orange">Preview Revised Rate Card</button><button id="add">+ Add line item</button></div></div>
+<div class="heading"><div><div class="eyebrow">OPPORTUNITY RATE CARD</div><h1 id="title">SECURE RATE CARD</h1><div class="sub" id="revision">Use the unique editing link in your quote email</div><div class="sub" id="timeInfo"></div></div><div class="row"><button id="reload" class="alt" hidden>Reload</button><button id="preview" class="orange">Preview Revised Rate Card</button><button id="add">+ Add line item</button></div></div>
 <div class="notice" id="notice" role="status" aria-live="polite">Open your secure link to edit a quote. For a synthetic, browser-only demonstration, open this page with ?demo=1.</div>
 <div class="panel accent"><div class="row spread"><div><h2 style="margin:0">Target RPP</h2><p class="sub">Changing target RPP requests a new N3 calculation. Negotiated line-item rates remain locked.</p></div>
 <form id="rppForm" class="row"><label><span>Target $ / PEQ</span><input id="target" class="rpp-input" required min=".01" step=".01" type="number"></label><button type="submit">Set target</button></form></div></div>
-<div class="metrics"><div class="metric"><div class="metric-label">Indicative achieved RPP</div><div class="metric-value" id="achieved">—</div></div><div class="metric"><div class="metric-label">Projected monthly</div><div class="metric-value" id="monthly">—</div></div><div class="metric"><div class="metric-label">One-time charges</div><div class="metric-value" id="oneTime">—</div></div></div>
-<div class="panel"><div id="sections"></div><div class="row spread"><span class="sub" id="forecast"></span><div class="row"><button id="save" class="orange" disabled>Save revised draft</button><button id="publish" disabled>Publish revised quote</button></div></div>
-<div class="warning"><strong>Development gate:</strong> Saving a draft never sends email. Actual publication and N3 RPP redistribution remain disabled until the existing calculation and N5 rendering workflows are connected and approved. Preview totals are indicative only.</div></div>
+<div class="metrics"><div class="metric"><div class="metric-label">Projected RPP ($/PEQ)</div><div class="metric-value" id="achieved">—</div></div><div class="metric"><div class="metric-label">Modeled Monthly Revenue</div><div class="metric-value" id="monthly">—</div></div><div class="metric"><div class="metric-label">One-time charges</div><div class="metric-value" id="oneTime">—</div></div></div>
+<div class="panel"><div id="sections"></div><div class="row spread"><span class="sub" id="forecast"></span><div class="row"><button id="save" class="orange" disabled>Save revised draft</button><button id="publish" class="orange" disabled>Finalize Rate Card</button></div></div>
+<div class="warning"><strong>Development gate:</strong> Finalizing locks a revision and stamps its issue time. Customer/warehouse email delivery requires a verified recipient and connected send workflow. A change to Target RPP requires N3 recalculation before finalization. No live emails are sent from this preview.</div></div>
 <dialog id="addDialog"><h2>Add custom charge</h2><form id="addForm"><div class="form-grid">
 <label class="wide"><span>Service description</span><input id="name" maxlength="150" required placeholder="Custom inspection"></label>
 <label><span>Category</span><select id="category"><option value="inbound">Inbound</option><option value="storage">Storage</option><option value="outbound">Outbound</option><option value="misc" selected>Miscellaneous / VAS</option></select></label>
@@ -59,6 +59,20 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
  <div class="row spread"><div><h2 style="margin:0">Revised Rate Card Preview</h2><div class="sub">Original N5 email layout · draft preview only</div></div><button type="button" id="closePreview" class="alt">Close Preview</button></div>
  <div id="previewDetails" role="status">Client-facing layout shown below. Sending and acceptance actions are disabled.</div>
  <iframe id="previewFrame" title="Scapegoat original proposal HTML preview" sandbox="" referrerpolicy="no-referrer"></iframe>
+ </dialog>
+<dialog id="finalizeDialog" aria-label="Finalize and deliver rate card">
+ <h2>Finalize Rate Card</h2><div class="sub" id="finalizeSummary"></div>
+ <p class="sub">Finalizing records a dated revision. Choose how you will present it.</p>
+ <div class="form-grid">
+  <label class="wide"><span>Delivery method</span><select id="deliveryMethod">
+   <option value="presentation">Download / present on screen share</option>
+   <option value="customer">Email directly to verified customer (integration required)</option>
+   <option value="warehouse">Email to verified warehouse (integration required)</option>
+  </select></label>
+  <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient</span><input id="recipient" type="email" readonly></label>
+ </div>
+ <div class="warning" id="deliveryWarning">This is a staging preview. Customer and warehouse emails are not enabled.</div>
+ <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Prepare</button></div>
  </dialog>
  <script type="module" src="./quote-editor.js"></script>
 </main></body></html>
