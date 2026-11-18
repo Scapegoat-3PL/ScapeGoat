@@ -6,7 +6,7 @@ const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-U
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const apiOrigin=location.origin; // Cloudflare Worker routes /api/* on this same preview origin
-let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="";
+let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="",savedFinalHtml=null;
 const stamp=when=>when?new Intl.DateTimeFormat("en-US",{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
 function staged(op,next,msg){quote=next;changes.push(op);notice(msg);render()}
@@ -70,7 +70,7 @@ async function api(path,method="GET",body=null){
 }
 async function load(){
  if(mode!=="live")return;busy=true;render();notice("Loading secure quote...");
- try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
+ try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
  catch(e){quote=null;notice("Unable to load: "+e.message)}
  busy=false;render();
 }
@@ -149,7 +149,7 @@ function finalizedPresentationHtml(){
  return "<!doctype html>\n"+doc.documentElement.outerHTML;
 }
 function exportPresentation(download=true){
- const blob=new Blob([finalizedPresentationHtml()],{type:"text/html;charset=utf-8"});
+ const blob=new Blob([savedFinalHtml||finalizedPresentationHtml()],{type:"text/html;charset=utf-8"});
  const href=URL.createObjectURL(blob);
  const a=document.createElement("a");a.href=href;
  if(download){a.download="Scapegoat-Rate-Card-"+String(quote.hwk_id).replace(/[^a-z0-9-]/gi,"-")+"-Rev"+rev+".html";a.click();}
@@ -187,7 +187,7 @@ $("confirmFinalize").addEventListener("click",async()=>{
  // The staging API is intentionally gated until the authorization and N3 checks are complete.
  busy=true;render();try{
   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
-  quote=result.draft;rev=result.revision;$("finalizeDialog").close();
+  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;$("finalizeDialog").close();
   notice("Rate card finalized and timestamped; downloading presentation copy. No email sent.",true);
   exportPresentation(true);
  }catch(e){notice("Finalization was not completed: "+e.message);}
