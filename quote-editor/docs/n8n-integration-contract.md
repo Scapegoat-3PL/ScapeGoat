@@ -61,3 +61,24 @@ Use existing N5 output formatting exactly. Provide explicit review/approval. A d
 - N4's row arrays typically provide field_name/cost/assumption, but not always billing-unit quantities; normalize explicit operational quantities to quote rows before giving financial projections.
 - A test page containing only a synthetic demo cannot be used to send customer-ready pricing.
 - This feature branch adds new files; it must not modify existing website pages or active n8n workflows.
+
+
+## Update: Finalization, dated revisions, delivery routes (Nov 18, 2026)
+
+The editor now offers **Finalize Rate Card** followed by **Deliver / Download Final Rate Card**. The browser demo finalizes locally for presentation review only; actual quote finalization is a server-side operation.
+
+The original N5 email HTML renderer is wrapped into a shared local/server module, preserving the original pricing presentation. A transparent summary differentiates modeled operational charges from custom recurring fees and one-time fees. The N5 accept/continue webhook is removed in downloadable presentation previews.
+
+API routes added, staging feature-flagged:
+- POST `/api/quotes/{quote_id}/finalize` with `expected_revision`, `delivery_method:"presentation"`. Server verifies link token, quote status, pending N3 reprice flag and source volume model; computes N5 output itself; stamps UTC `finalized_at`; saves immutable `final_html`; increments revision; never sends email. **Disabled until `ENABLE_FINALIZATION=true` and staging data/secrets are present.**
+- POST `/api/quotes/{quote_id}/deliver` with `expected_revision` and `channel:"customer"|"warehouse"`. Server checks immutable finalized quote, trusted `verified_recipients`, audit outbox deduplication, and separated delivery credential. **Disabled until `ENABLE_EMAIL_DELIVERY=true` and approved n8n email sender is configured.** Client-supplied addresses are rejected. A 202 acknowledges the workflow request, not provider send confirmation.
+
+The database migration adds versioned `finalized_at`, immutable finalized state, saved final HTML, audit digest, and `sg_opportunity_rate_quote_deliveries` outbox with unique (quote_id, revision, channel). Not applied yet.
+
+**Source-backed forecast quantity changes:** BOL uses `section_4_outbound.PalletOut.pallet_vol`, pallet-out units = shipments × pallets per shipment. Editing BOL quantity updates shipment volume rather than a disconnected line quantity. N5 is the authoritative calculation for modeled operational revenue; custom monthly and one-time fees are explicitly reported separately. Do not send if N3 reprice is pending or required inputs are missing.
+
+**First Child Workflow created, no activation or writes**:
+[Opportunity Quote Snapshot — Pilot](https://seanskin.app.n8n.cloud/workflow/kaDkGekfNhXAw3XT), project: Josh Boren personal, tagged `Child Workflow`. This currently validates input + prepares the normalized payload only. The next reviewed increment would be to connect its authenticated staging API write; do not build another child workflow until this one's output is reviewed. Its goal and guardrails are embedded as a sticky note.
+
+**Deployment dependencies:** Cloudflare uses the existing independent Worker preview `scapegoatquoteeditor.sean-0a8.workers.dev`, with `wrangler.jsonc` routing static assets and API to one origin. Staging Supabase branching requires explicit hourly cost consent; no production tables were changed. Cloudflare secrets must be entered securely in Worker settings. Live N3 and original generator remain unchanged. No customer email has been sent.
+
