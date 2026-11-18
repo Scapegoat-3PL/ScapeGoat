@@ -89,13 +89,17 @@ test("finalize locks and timestamps a reconciled presentation without sending em
  const edit=await worker.fetch(request("/api/quotes/"+created.quote_id,"PATCH",{expected_revision:2,operations:[{type:"edit_rate",section:"section_3_storage_rows",field_name:"storage_pallet_base",rate:19}]},bearer),enabled);
  assert.equal(edit.status,409);
 });
-test("server refuses finalization when RPP optimization remains outstanding",async()=>{
+test("legacy target-RPP PATCH recalculates through N3 instead of stranding finalization",async()=>{
  const modeled={...initial,section_2_inbound:{},section_3_storage:{Storage_Qty:100},section_4_outbound:{},section_5_misc:{}};
  const createdResponse=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-RPPTEST",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
  assert.equal(createdResponse.status,201);
  const created=await createdResponse.json(),bearer={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
  const edited=await worker.fetch(request("/api/quotes/"+created.quote_id,"PATCH",{expected_revision:1,operations:[{type:"set_target_rpp",rpp:55}]},bearer),env);
  assert.equal(edited.status,200);
- const rejected=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),{...env,ENABLE_FINALIZATION:"true"});
- assert.equal(rejected.status,422);
+ const repriced=await edited.json();
+ assert.equal(repriced.draft.reprice_requested,false);
+ assert.equal(repriced.draft.reprice_result.target_rpp,55);
+ assert.equal(repriced.draft.reprice_result.engine,"frozen_n3_n4_n5");
+ const finalized=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),{...env,ENABLE_FINALIZATION:"true"});
+ assert.equal(finalized.status,200);
 });
