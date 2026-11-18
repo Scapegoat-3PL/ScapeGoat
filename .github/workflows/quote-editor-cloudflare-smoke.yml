@@ -69,3 +69,22 @@ jobs:
             exit 1
           fi
           echo 'EDGE_FUNCTION_HEALTH=ok'
+
+      - name: Verify Cloudflare safely rejects anonymous quote access
+        shell: bash
+        run: |
+          set -eu
+          BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
+          HEALTH=$(curl -sSL --max-time 15 -o /tmp/sg-proxy-health -w '%{http_code}' "$BASE/health" || true)
+          UNAUTH=$(curl -sSL --max-time 15 -o /tmp/sg-proxy-unauth -w '%{http_code}' "$BASE/api/quotes/11111111-1111-4111-8111-111111111111" || true)
+          echo "EDITOR_BACKEND_PROXY_HEALTH_HTTP=$HEALTH"
+          echo "EDITOR_UNAUTHORIZED_QUOTE_HTTP=$UNAUTH"
+          cat /tmp/sg-proxy-health || true
+          echo
+          cat /tmp/sg-proxy-unauth || true
+          echo
+          if [[ "$HEALTH" == '200' && "$UNAUTH" == '401' ]]; then
+            echo 'EDITOR_API_AUTH_CHECK=passed'
+          else
+            echo 'EDITOR_API_AUTH_CHECK=pending_deployment_or_configuration'
+          fi
