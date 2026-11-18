@@ -28,7 +28,7 @@ const ENV = {
   INTERNAL_API_KEY: serviceKey(),
   EDITOR_ORIGIN: "https://scapegoatquoteeditor.sean-0a8.workers.dev",
   ENABLE_FINALIZATION: "true",
-  ENABLE_EMAIL_DELIVERY: "false"
+  ENABLE_EMAIL_DELIVERY: "true"
 };
 
 Deno.serve(async (request) => {
