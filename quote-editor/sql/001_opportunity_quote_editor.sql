@@ -1,6 +1,7 @@
--- REVIEW ONLY: isolated Opportunity Rate Card Editor v1.
--- Apply to a development Supabase branch/project after review, NOT production.
--- No existing warehouse, blanket rate, or quote table is altered.
+-- Additive Opportunity Rate Card Editor v1 migration.
+-- Approved for existing Scapegoat Supabase project: new sg_opportunity_rate_* tables only.
+-- No paid database branch; no changes to existing quote-generator, warehouse or blanket-rate tables.
+-- Public Data API remains locked: service_role-only access behind Cloudflare Worker.
 begin;
 create extension if not exists pgcrypto with schema extensions;
 create table if not exists public.sg_opportunity_rate_quotes (
@@ -71,13 +72,13 @@ for each row execute function public.sg_oq_audit();
 alter table public.sg_opportunity_rate_quotes enable row level security;
 alter table public.sg_opportunity_rate_quote_links enable row level security;
 alter table public.sg_opportunity_rate_quote_versions enable row level security;
-revoke all on public.sg_opportunity_rate_quotes from anon,authenticated;
-revoke all on public.sg_opportunity_rate_quote_links from anon,authenticated;
-revoke all on public.sg_opportunity_rate_quote_versions from anon,authenticated;
+revoke all on public.sg_opportunity_rate_quotes from public,anon,authenticated;
+revoke all on public.sg_opportunity_rate_quote_links from public,anon,authenticated;
+revoke all on public.sg_opportunity_rate_quote_versions from public,anon,authenticated;
 revoke all on function public.sg_oq_guard() from public,anon,authenticated;
 revoke all on function public.sg_oq_audit() from public,anon,authenticated;
-grant all on public.sg_opportunity_rate_quotes to service_role;
-grant all on public.sg_opportunity_rate_quote_links to service_role;
+grant select, insert, update on public.sg_opportunity_rate_quotes to service_role;
+grant select, insert, update on public.sg_opportunity_rate_quote_links to service_role;
 grant select, insert on public.sg_opportunity_rate_quote_versions to service_role;
 
 -- Delivery outbox is staging-only until a separately approved n8n sender is connected.
@@ -98,7 +99,7 @@ create table if not exists public.sg_opportunity_rate_quote_deliveries (
 );
 create index if not exists sg_quote_delivery_status_idx on public.sg_opportunity_rate_quote_deliveries(status,requested_at);
 alter table public.sg_opportunity_rate_quote_deliveries enable row level security;
-revoke all on public.sg_opportunity_rate_quote_deliveries from anon,authenticated;
+revoke all on public.sg_opportunity_rate_quote_deliveries from public,anon,authenticated;
 grant select,insert,update on public.sg_opportunity_rate_quote_deliveries to service_role;
 
 commit;
