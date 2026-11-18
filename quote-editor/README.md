@@ -1,35 +1,46 @@
-# SCAPEGOAT.OS — Opportunity Rate Card Editor (development)
+# SCAPEGOAT.OS — Opportunity Rate Card Editor
 
-This is an **isolated, opportunity-scoped editor**. It does **not** change the regional Blanket Rates, the warehouse master RPP, or any published customer rate cards.
+**Status:** Feature-branch code for review. **Not deployed; no live n8n workflows or production Supabase tables changed.**
 
-## Product workflow
-1. Existing N3/N4 quote generator calculates the opportunity's first rate card.
-2. A future isolated quote-snapshot child workflow stores the structured quote and issues a secure, expiring edit link for that opportunity and warehouse.
-3. The warehouse opens the link from its existing quote email.
-4. The warehouse can change an individual line-item price, add a custom billable line, or request a new target RPP.
-5. Individual line edits remain fixed. Only an explicit **Recalculate RPP** action should redistribute unlocked rates using the authoritative N3 logic.
-6. Save creates an auditable draft revision. **Save does not send email.**
-7. A future approved N5 render/send step issues a revised proposal after authoritative reconciliation.
+## What is implemented
 
-## Implementation gates
-- [x] Feature branch created outside main
-- [ ] Browser page and standalone demonstration
-- [ ] Scoped quote storage / audit schema in staging Supabase
-- [ ] Cloudflare Worker with quote-token access control in staging
-- [ ] Isolated n8n Child Workflow: snapshot a generated quote
-- [ ] Isolated n8n Child Workflow: reprice with N3 while preserving manual line locks
-- [ ] Isolated n8n Child Workflow: render with existing N5 branding
-- [ ] End-to-end pilot, audit, and explicit production approval
+- quote-editor.html: Scapegoat-branded, responsive opportunity-level editor.
+- quote-editor.js: secure quote link loading, individual rate edits, new service charges, quote-specific target RPP input, draft saving and reload, synthetic demo.
+- quote-editor-core.mjs: line overrides and manual locks, immutable generated baseline, RPP requests, operation validation, illustrative totals.
+- worker/index.mjs: Cloudflare staging API for authorized quote snapshots, scoped expiring edit tokens, GET, and optimistic-concurrency PATCH. No publish or email endpoint.
+- sql/001_opportunity_quote_editor.sql: additive RLS-protected Supabase tables and transactional revision history. Review-only; not applied.
+- tests/editor.test.mjs and .github/workflows/quote-editor-tests.yml: isolated Node tests and CI.
+- docs/n8n-integration-contract.md: N3/N4/N5 connection contract and subsequent Child Workflow ordering.
 
-## Guardrails
-- Do not edit, rename, disable, or republish any current live n8n workflow.
-- Do not modify existing customer-facing proposal, opportunity brief, or email formatting.
-- No production migration, deployment, or outbound send before review.
-- Do not put Supabase service-role keys, email tokens, or n8n credentials into static website files.
-- Discounted line items must not silently cause another RPP redistribution.
-- Source of truth for actual RPP math remains the existing N3 optimizer. Draft previews are non-authoritative.
+## Warehouse experience
 
-## Existing integration points (inspected)
-The active n8n workflow `Scapegoat v1 Hawkish Live` (`XKbLZ6d9WfF1pRpN`) uses `N3 vSean.1` for weighted RPP optimization, `N4 vSean.1` for quote rows, and `N5 v` for branded HTML. The pricing process and the website are separate systems. The website repository holds static HTML.
+A secure Edit Rate Card link will eventually appear in the existing warehouse quote email. The warehouse can edit a single line or add an additional charge without affecting other pricing. Changing the target RPP is a separate request for N3 optimizer reconciliation; negotiated individual line rates should remain locked.
 
-The original repository CNAME maps `scapegoat3plwarehouserates.com`; verify hosting and Git-connected preview before changing DNS or merging.
+Save creates a draft only. Sending a revised quote is disabled until authoritative N3 calculations and the original-format N5 rendering have been connected and approved.
+
+## Local synthetic demo
+
+From the repository root, start a local server:
+
+    python3 -m http.server 8765
+
+Visit:
+
+    http://localhost:8765/quote-editor/quote-editor.html?demo=1
+
+The demo runs entirely in the browser with synthetic data. Save and Publish are disabled.
+
+Run the tests:
+
+    node --test quote-editor/tests/*.test.mjs
+
+## Remaining release gates
+
+1. Review pull request and CI; configure isolated Cloudflare preview deployment (not live root-domain routing).
+2. Apply the additive SQL to a staging Supabase environment only after review.
+3. Deploy the Worker with staging secrets and the exact preview origin; update the browser API URL from its placeholder.
+4. Build one n8n Child Workflow at a time: Quote Snapshot, then N3 Reprice, then N5 Render/Send. Tag each Child Workflow and attach its agreed goal.
+5. Verify HWK-to-warehouse authorization, forecast quantities, RPP reconciliation, discounts, and quote revisions.
+6. Obtain explicit approval for production workflow changes, customer emails, merging, and deployment.
+
+The original root-level index.html, pricing.html, onboard.html and CNAME are unchanged.
