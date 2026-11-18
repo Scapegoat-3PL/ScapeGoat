@@ -79,4 +79,26 @@ revoke all on function public.sg_oq_audit() from public,anon,authenticated;
 grant all on public.sg_opportunity_rate_quotes to service_role;
 grant all on public.sg_opportunity_rate_quote_links to service_role;
 grant select, insert on public.sg_opportunity_rate_quote_versions to service_role;
+
+-- Delivery outbox is staging-only until a separately approved n8n sender is connected.
+-- This records requests; it does NOT send messages from SQL.
+create table if not exists public.sg_opportunity_rate_quote_deliveries (
+  delivery_id uuid primary key default gen_random_uuid(),
+  quote_id uuid not null references public.sg_opportunity_rate_quotes(quote_id),
+  revision integer not null check (revision > 0),
+  channel text not null check(channel in ('customer','warehouse')),
+  recipient_email text not null check(length(recipient_email) between 5 and 320),
+  status text not null default 'pending' check(status in ('pending','accepted','sent','failed')),
+  provider_message_id text,
+  requested_at timestamptz not null default now(),
+  accepted_at timestamptz,
+  sent_at timestamptz,
+  failure_reason text,
+  unique(quote_id,revision,channel)
+);
+create index if not exists sg_quote_delivery_status_idx on public.sg_opportunity_rate_quote_deliveries(status,requested_at);
+alter table public.sg_opportunity_rate_quote_deliveries enable row level security;
+revoke all on public.sg_opportunity_rate_quote_deliveries from anon,authenticated;
+grant select,insert,update on public.sg_opportunity_rate_quote_deliveries to service_role;
+
 commit;
