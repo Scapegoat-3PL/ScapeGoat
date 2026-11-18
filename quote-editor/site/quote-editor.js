@@ -7,7 +7,7 @@ const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const apiOrigin=location.origin; // Cloudflare Worker routes /api/* on this same preview origin
 let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="";
-const stamp=when=>when?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
+const stamp=when=>when?new Intl.DateTimeFormat("en-US",{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
 function staged(op,next,msg){quote=next;changes.push(op);notice(msg);render()}
 function lineView(r){
