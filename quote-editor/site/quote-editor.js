@@ -1,6 +1,7 @@
 import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,preview,changeQuantity,pricingIssues,getForecastQuantity} from "./quote-editor-core.mjs";
 import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
 import {renderQuoteDocument} from "./quote-release.mjs";
+import {repriceQuote} from "./n3-reprice.mjs";
 const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"Inbound",section_3_storage_rows:"Storage",section_4_outbound_rows:"Outbound",section_5_misc_rows:"Miscellaneous / VAS"};
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
@@ -55,7 +56,9 @@ function render(){
  $("monthly").textContent=operational!==undefined?fmt(operational+customMonth):"Not projected";
  $("oneTime").textContent=fmt(customOnce);
  const issues=pricingIssues(quote);
- $("forecast").textContent=issues.length?issues.join(" · "):"Operating forecast uses the original N5 calculation. BOL volume comes from outbound shipments. Custom recurring charges are shown separately; N3 target changes still require optimization.";
+ $("forecast").textContent=issues.length?issues.join(" · "):quote.reprice_result
+ ? "N3 target "+fmt(quote.reprice_result.target_rpp)+" / PEQ · Achieved "+fmt(quote.reprice_result.achieved_rpp)+" / PEQ · Recalculated "+stamp(quote.reprice_result.calculated_at)
+ : "Operational revenue uses the original N5 forecast. BOL volume comes from outbound shipments. Custom recurring charges are separate from RPP.";
  for(const section of SECTIONS){
  const box=el("section","rates"),heading=el("h2","",sectionLabels[section]);box.append(heading);
  const head=el("div","line line-head");
@@ -75,7 +78,39 @@ async function load(){
  catch(e){quote=null;notice("Unable to load: "+e.message)}
  busy=false;render();
 }
-$("rppForm").addEventListener("submit",e=>{e.preventDefault();if(!quote||busy)return;try{const r=$("target").value;staged({type:"set_target_rpp",rpp:r},targetRpp(quote,r),"Target recorded. N3 repricing is required before this quote can be sent.");}catch(err){notice(err.message)}});
+$("rppForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ if(!quote||busy||quote.status!=="draft")return;
+ const amount=$("target").value;
+ if(!amount||!Number.isFinite(Number(amount))||Number(amount)<=0){notice("Enter a Target RPP greater than zero.");return}
+ if(mode==="demo"){
+  try{
+   quote=repriceQuote(quote,amount);
+   const r=quote.reprice_result;
+   notice("N3 recalculated this demonstration. Target "+fmt(r.target_rpp)+
+    ", achieved "+fmt(r.achieved_rpp)+
+    (r.status!=="achieved"?" — outside the possible range; adjust the target.":"."),r.status==="achieved");
+   render();
+  }catch(err){notice("Unable to reprice: "+err.message);render()}
+  return;
+ }
+ if(mode!=="live")return;
+ busy=true;render();notice("Recalculating Target RPP through N3...");
+ try{
+  if(changes.length){
+   const saved=await api("/api/quotes/"+encodeURIComponent(quoteId),"PATCH",{expected_revision:rev,operations:changes});
+   quote=saved.draft;rev=saved.revision;changes=[];
+  }
+  const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/reprice","POST",
+   {expected_revision:rev,target_rpp:Number(amount)});
+  quote=result.draft;rev=result.revision;changes=[];
+  const r=result.reprice_result;
+  notice("N3 repricing saved to revision "+rev+". Target "+fmt(r.target_rpp)+
+   ", achieved "+fmt(r.achieved_rpp)+
+   (r.status!=="achieved"?". The target cannot be reached with negotiated rate locks or the 30% downside cap; finalization is blocked until changed.":"."),r.status==="achieved");
+ }catch(err){notice("RPP recalculation failed: "+err.message+". Existing negotiated rates were not lost.")}
+ busy=false;render();
+});
 $("add").addEventListener("click",()=>$("addDialog").showModal());
 $("cancel").addEventListener("click",()=>$("addDialog").close());
 $("addForm").addEventListener("submit",e=>{
@@ -130,7 +165,8 @@ function openRateCardPreview(){
   });
   $("previewFrame").srcdoc="<!doctype html>\n"+doc.documentElement.outerHTML;
   const messages=["Original N5 email layout, showing current edited rates and opportunity-derived quantities. Links are disabled; no email is sent."];
-  if(quote.reprice_requested)messages.push("Target RPP was changed, but N3 has NOT redistributed charges. Do not send this quote until recalculated.");
+  if(quote.reprice_requested)messages.push("Target RPP still needs an N3 recalculation.");
+  else if(quote.reprice_result)messages.push("N3 has recalculated eligible operational rates. Target "+fmt(quote.reprice_result.target_rpp)+" / PEQ; achieved "+fmt(quote.reprice_result.achieved_rpp)+" / PEQ.");
   if(quote.custom_items?.length)messages.push("Custom charges display in the Administrative & Misc section. Monthly recurring custom fees are separate from operational RPP.");
   if(quote.calculation_status==="needs_reconciliation"&&quote.reprice_requested)messages.push("Draft awaits N3 RPP optimization.");
   $("previewDetails").textContent=messages.join(" ");
