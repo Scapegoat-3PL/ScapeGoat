@@ -1,4 +1,5 @@
 import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,preview} from "./quote-editor-core.mjs";
+import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
 const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"Inbound",section_3_storage_rows:"Storage",section_4_outbound_rows:"Outbound",section_5_misc_rows:"Miscellaneous / VAS"};
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
@@ -28,6 +29,7 @@ function render(){
  $("revision").textContent=quote?"Revision "+rev+" · "+changes.length+" unsaved change(s)":"Open from your quote email";
  $("target").value=quote?.requested_target_rpp??"";
  $("target").disabled=!quote||busy;$("add").disabled=!quote||busy;
+ $("preview").disabled=!quote||busy;
  $("save").disabled=mode!=="live"||!quote||busy||changes.length===0;
  $("reload").hidden=mode!=="live";
  $("publish").disabled=true;
@@ -74,6 +76,50 @@ $("save").addEventListener("click",async()=>{
  catch(e){notice("Save failed: "+e.message+". Keep this tab open; your changes are not saved.")}
  busy=false;render();
 });
+
+function proposalPayload(draft){
+ const payload=structuredClone(draft.current_payload);
+ payload.section_1_static=payload.section_1_static||{};
+ payload.section_1_static.Hwk_Id=payload.section_1_static.Hwk_Id||draft.hwk_id;
+ // N5 prints field_name for the service title. Preserve custom internal IDs in
+ // the editor database but use the human-readable title for the N5 presentation.
+ for(const section of SECTIONS){
+  payload[section]=(payload[section]||[]).map(row=>row.custom
+   ? {...row,field_name:row.display_label||row.field_name}
+   : row);
+ }
+ return payload;
+}
+function openRateCardPreview(){
+ if(!quote||busy)return;
+ try{
+  const output=renderExistingN5Proposal(proposalPayload(quote));
+  if(!output||typeof output.html_body!=="string")throw Error("N5 returned no proposal");
+  // The ORIGINAL N5 template includes a live 'Let's Move Forward' webhook.
+  // Remove all actions in the preview ONLY; do not change N5's layout.
+  const doc=new DOMParser().parseFromString(output.html_body,"text/html");
+  doc.querySelectorAll("script,form").forEach(node=>node.remove());
+  doc.querySelectorAll("a").forEach(node=>{
+   node.removeAttribute("href");node.style.pointerEvents="none";
+   node.setAttribute("title","Disabled in quote preview");
+  });
+  doc.querySelectorAll("*").forEach(node=>{
+   for(const attr of [...node.attributes]){
+    if(/^on/i.test(attr.name))node.removeAttribute(attr.name);
+   }
+  });
+  $("previewFrame").srcdoc="<!doctype html>\n"+doc.documentElement.outerHTML;
+  const messages=["This is the original N5 email format, with your current line-item changes. Links are disabled and no email is sent."];
+  if(quote.reprice_requested)messages.push("Target RPP was changed, but N3 has NOT redistributed charges. Do not send this quote until recalculated.");
+  if(quote.custom_items?.length)messages.push("Custom fees are visible in the proposal; their impact on RPP and contractual billing totals still requires pricing-engine reconciliation.");
+  if(quote.calculation_status==="needs_reconciliation")messages.push("Draft pricing is not yet financially reconciled.");
+  $("previewDetails").textContent=messages.join(" ");
+  $("previewDialog").showModal();
+ }catch(err){notice("Unable to render the N5 preview: "+err.message);}
+}
+$("preview").addEventListener("click",openRateCardPreview);
+$("closePreview").addEventListener("click",()=>$("previewDialog").close());
+
 const query=new URLSearchParams(location.search);quoteId=query.get("quote_id")||"";
 const fragment=new URLSearchParams(location.hash.slice(1));const supplied=fragment.get("access_token");
 if(supplied&&uuid.test(quoteId)){sessionStorage.setItem("scapegoat_quote_token:"+quoteId,supplied);history.replaceState(null,"",location.pathname+location.search)}
@@ -81,6 +127,13 @@ if(uuid.test(quoteId))token=sessionStorage.getItem("scapegoat_quote_token:"+quot
 if(token&&uuid.test(quoteId)){mode="live";load()}
 else if(query.get("demo")==="1"){
  mode="demo";const baseline_payload={section_1_static:{Warehouse_rpp:50,storage_pallet_equivalent:100},section_2_inbound_rows:[{field_name:"inbound_container_min",display_label:"Container Unload",cost:850,billing_unit:"container",forecast_quantity:2,billing_frequency:"per_event",assumption:"Per floor-loaded container"}],section_3_storage_rows:[{field_name:"storage_pallet_base",display_label:"Pallet Storage",cost:20,billing_unit:"pallet/month",forecast_quantity:100,billing_frequency:"recurring"}],section_4_outbound_rows:[{field_name:"b2b_pallet_out",display_label:"Outbound Pallet",cost:13,billing_unit:"pallet",forecast_quantity:100,billing_frequency:"per_event"}],section_5_misc_rows:[]};
+ baseline_payload.section_1_static={...baseline_payload.section_1_static,Hwk_Id:"HWK-DEMO",selected_warehouse_name:"Sample Warehouse Partner",city:"Los Angeles",state:"CA"};
+ baseline_payload.section_2_inbound={inbound_type:"Floor-loaded",has_pallet_in:false,has_container_unload:true,container_avg_inbound_qty_per_month:2,container_avg_qty_per_inbound:500,Master_Carton_In:0.68,inbound_container_min:850};
+ baseline_payload.section_2_inbound_rows.unshift({field_name:"master_carton_in",cost:0.68,assumption:"Carton handling"});
+ baseline_payload.section_3_storage={storage_type:"Pallet",Storage_Qty:100,storage_pallet_equivalent:100,storage_pallet_base:20};
+ baseline_payload.section_4_outbound={DTC:{dtc_vol:0},B2B:{retail_vol:0},PalletOut:{pallet_vol:10,pallets_per_order:10,b2b_pallet_out:13,bol_fee:8}};
+ baseline_payload.section_4_outbound_rows.push({field_name:"bol_fee",cost:8,assumption:"Per outbound shipment"});
+ baseline_payload.section_5_misc={monthly_minimum:1000};
  quote=newDraft({quote_id:"DEMO",hwk_id:"HWK-DEMO",warehouse_id:"DEMO",baseline_payload});rev=1;
  notice("Synthetic demo: edit rates and add fees. No data is saved or sent.",true);render();
 }else render();
