@@ -3,7 +3,7 @@ export const SECTIONS = Object.freeze(["section_2_inbound_rows","section_3_stora
 const copy=o=>structuredClone(o);
 const amount=v=>{if(v===""||v===null||v===undefined||!Number.isFinite(Number(v))||Number(v)<0||Number(v)>1e9)throw Error("Invalid non-negative rate");return Math.round(Number(v)*100)/100};
 const validate=(d,s)=>{if(!d||d.status!=="draft")throw Error("Quote is not editable");if(s&&!SECTIONS.includes(s))throw Error("Unknown rate category")};
-const dirty=d=>{d.calculation_status="needs_reconciliation";d.reconciled_totals=null;return d};
+const dirty=d=>{d.calculation_status="needs_reconciliation";d.reconciled_totals=null;d.reprice_result=null;return d};
 export function newDraft({quote_id,hwk_id,warehouse_id,baseline_payload}){
  if(!quote_id||!hwk_id||!warehouse_id||!baseline_payload?.section_1_static)throw Error("Missing quote identity");
  const b=copy(baseline_payload);for(const s of SECTIONS){if(!Array.isArray(b[s]))b[s]=[]}
@@ -129,6 +129,7 @@ export function changeQuantity(source,section,id,quantity){
 }
 export function pricingIssues(d){
  const issues=[];if(d.reprice_requested)issues.push("Target RPP requires N3 optimization before finalization");
+ if(d.calculation_status==="target_not_achieved")issues.push("Target RPP is not achievable with the locked rates or N3 downside guardrail; adjust the target before finalizing");
  const modeled=new Set(["inbound_pallet","master_carton_in","inbound_container_min","storage_pallet_base","SQFT_rate","b2c_order_fee","b2c_unit_pick","b2b_order_fee","b2b_carton_pick_fee","b2b_pallet_out","bol_fee"]);
  for(const section of SECTIONS)for(const row of d.current_payload[section]||[]){
    if(modeled.has(row.field_name)&&Number(row.cost)>0&&getForecastQuantity(d,section,row.field_name).quantity===null){
