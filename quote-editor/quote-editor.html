@@ -31,14 +31,15 @@ input[type=number]{font-variant-numeric:tabular-nums}
 section.rates{margin-bottom:24px}section.rates h2{margin:4px 0 10px;font-size:26px}
 .notice{background:#ffedd5;border-left:5px solid var(--orange);padding:13px 17px;font-size:13px;margin:18px 0}
 .notice.good{background:#dcfce7;border-color:#16a34a}.warning{border:2px dashed var(--orange);background:#fff7ed;padding:13px;margin-top:18px;font-size:13px}
-dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px,calc(100vw - 24px));padding:22px}dialog::backdrop{background:#1a202ca8}
+dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px,calc(100vw - 24px));padding:22px}
+#previewDialog{width:min(980px,calc(100vw - 22px));max-width:980px;max-height:94vh;overflow:auto;padding:14px}#previewFrame{display:block;width:100%;height:74vh;border:2px solid var(--ink);background:#fff}#previewDetails{font-size:13px;color:var(--muted);padding:8px 0 12px}dialog::backdrop{background:#1a202ca8}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wide{grid-column:1/-1}
 .actions{display:flex;gap:12px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}
 @media(max-width:790px){.metrics{grid-template-columns:1fr}.line-head{display:none}.line{grid-template-columns:1fr 1fr 1fr}.line .desc{grid-column:1/-1}}
 @media(max-width:500px){.panel{padding:13px}.line{grid-template-columns:1fr 1fr}.line .desc{grid-column:1/-1}.form-grid{grid-template-columns:1fr}.wide{grid-column:1}}
 </style></head><body><main>
 <header><div class="brand">SCAPE<b>GOAT</b>.OS</div><div class="status" id="mode">SECURE QUOTE EDITOR</div></header>
-<div class="heading"><div><div class="eyebrow">OPPORTUNITY RATE CARD</div><h1 id="title">SECURE RATE CARD</h1><div class="sub" id="revision">Use the unique editing link in your quote email</div></div><div class="row"><button id="reload" class="alt" hidden>Reload</button><button id="add">+ Add line item</button></div></div>
+<div class="heading"><div><div class="eyebrow">OPPORTUNITY RATE CARD</div><h1 id="title">SECURE RATE CARD</h1><div class="sub" id="revision">Use the unique editing link in your quote email</div></div><div class="row"><button id="reload" class="alt" hidden>Reload</button><button id="preview" class="orange">Preview Revised Rate Card</button><button id="add">+ Add line item</button></div></div>
 <div class="notice" id="notice" role="status" aria-live="polite">Open your secure link to edit a quote. For a synthetic, browser-only demonstration, open this page with ?demo=1.</div>
 <div class="panel accent"><div class="row spread"><div><h2 style="margin:0">Target RPP</h2><p class="sub">Changing target RPP requests a new N3 calculation. Negotiated line-item rates remain locked.</p></div>
 <form id="rppForm" class="row"><label><span>Target $ / PEQ</span><input id="target" class="rpp-input" required min=".01" step=".01" type="number"></label><button type="submit">Set target</button></form></div></div>
@@ -54,5 +55,10 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
 <label><span>Forecast quantity (optional)</span><input id="quantity" type="number" min="0" step=".01"></label>
 <label class="wide"><span>Assumptions</span><textarea id="assumption" rows="2"></textarea></label></div>
 <div class="actions"><button type="button" id="cancel" class="alt">Cancel</button><button type="submit" class="orange">Add line</button></div></form></dialog>
-<script type="module" src="./quote-editor.js"></script>
+<dialog id="previewDialog" aria-label="Revised rate card preview">
+ <div class="row spread"><div><h2 style="margin:0">Revised Rate Card Preview</h2><div class="sub">Original N5 email layout · draft preview only</div></div><button type="button" id="closePreview" class="alt">Close Preview</button></div>
+ <div id="previewDetails" role="status">Client-facing layout shown below. Sending and acceptance actions are disabled.</div>
+ <iframe id="previewFrame" title="Scapegoat original proposal HTML preview" sandbox="" referrerpolicy="no-referrer"></iframe>
+ </dialog>
+ <script type="module" src="./quote-editor.js"></script>
 </main></body></html>
