@@ -1,0 +1,8 @@
+{
+  "name": "scapegoatquoteeditor",
+  "compatibility_date": "2026-11-18",
+  "assets": {
+    "directory": "./quote-editor/site",
+    "not_found_handling": "404-page"
+  }
+}
