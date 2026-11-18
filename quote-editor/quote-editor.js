@@ -1,4 +1,4 @@
-import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,preview} from "./quote-editor-core.mjs";
+import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,preview,changeQuantity,pricingIssues,getForecastQuantity} from "./quote-editor-core.mjs";
 import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
 const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"Inbound",section_3_storage_rows:"Storage",section_4_outbound_rows:"Outbound",section_5_misc_rows:"Miscellaneous / VAS"};
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
@@ -6,6 +6,7 @@ const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const apiOrigin="https://api.scapegoat3plwarehouserates.com"; // staging API is NOT deployed yet
 let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="";
+const stamp=when=>when?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
 function staged(op,next,msg){quote=next;changes.push(op);notice(msg);render()}
 function lineView(r){
@@ -18,7 +19,12 @@ function lineView(r){
  const input=el("input");input.type="number";input.min="0";input.step=".01";input.value=r.cost;input.disabled=busy;
  input.setAttribute("aria-label","Rate for "+(r.display_label||r.field_name));
  input.addEventListener("change",()=>{try{staged({type:"edit_rate",section:r.section,field_name:r.field_name,rate:input.value},changeRate(quote,r.section,r.field_name,input.value),"Only this rate changed; no RPP redistribution.");}catch(e){notice(e.message);render()}});
- wrapper.append(input,el("strong","money",fmt(r.value)));
+ const q=el("input");q.type="number";q.min="0";q.step=".01";q.placeholder="As needed";q.value=r.forecast_quantity??"";
+ q.disabled=busy;q.setAttribute("aria-label","Monthly forecast quantity for "+(r.display_label||r.field_name));
+ q.title=r.quantity_source==="opportunity"?"Forecast derived from this opportunity. Changing it updates related volumes.":"Monthly forecast units; enter 0 if not forecast.";
+ q.addEventListener("change",()=>{if(q.value===""){notice("Enter a forecast quantity or 0 for none. Existing source volumes are preserved.");return}
+ try{staged({type:"edit_quantity",section:r.section,field_name:r.field_name,quantity:q.value},changeQuantity(quote,r.section,r.field_name,q.value),"Forecast quantity updated for this opportunity. Related service volumes may also change.");}catch(e){notice(e.message);render()}}); 
+ wrapper.append(input,q,el("strong","money",r.value===null?"—":fmt(r.value)));
  const buttons=el("div");const custom=Boolean(r.custom),overridden=Boolean(quote.manual_overrides[r.section+":"+r.field_name]);
  if(custom||overridden){const b=el("button","alt",custom?"Remove":"Reset");b.type="button";b.style.padding="5px 8px";b.style.fontSize="12px";b.addEventListener("click",()=>{try{if(custom)staged({type:"remove_line",id:r.field_name},removeLine(quote,r.field_name),"Custom charge removed.");else staged({type:"reset_rate",section:r.section,field_name:r.field_name},resetRate(quote,r.section,r.field_name),"Generated rate restored.");}catch(e){notice(e.message)}});buttons.append(b)}
  wrapper.append(buttons);return wrapper;
@@ -27,23 +33,31 @@ function render(){
  $("mode").textContent=mode==="demo"?"LOCAL DEMO · NO SERVER":"SECURE EDITOR · DRAFT";
  $("title").textContent=quote?.hwk_id||"SECURE RATE CARD";
  $("revision").textContent=quote?"Revision "+rev+" · "+changes.length+" unsaved change(s)":"Open from your quote email";
+ $("timeInfo").textContent=quote?"Generated "+stamp(quote.generated_at||quote.baseline_payload?.generated_at||quote.baseline_payload?.section_1_static?.generated_at)+" · "+(quote.finalized_at?"Finalized "+stamp(quote.finalized_at):"Draft"):"";
  $("target").value=quote?.requested_target_rpp??"";
  $("target").disabled=!quote||busy;$("add").disabled=!quote||busy;
  $("preview").disabled=!quote||busy;
  $("save").disabled=mode!=="live"||!quote||busy||changes.length===0;
  $("reload").hidden=mode!=="live";
- $("publish").disabled=true;
+ $("publish").disabled=!quote||busy||quote.status!=="draft"||changes.length>0&&mode==="live"||pricingIssues(quote).length>0;
  const wrap=$("sections");wrap.replaceChildren();
  if(!quote){wrap.append(el("p","sub","No rate card loaded. Open an authorized link or add ?demo=1 to the URL for a synthetic demonstration."));return}
  const p=preview(quote);
- $("achieved").textContent=p.rpp===null?"Not projected":fmt(p.rpp);
- $("monthly").textContent=p.unknown?"Incomplete":fmt(p.monthly);
- $("oneTime").textContent=p.unknown?"Incomplete":fmt(p.oneTime);
- $("forecast").textContent=p.unknown?p.unknown+" rate lines have no forecast quantity. Totals are incomplete.":"Illustrative estimates only; N3 reconciliation required.";
+ let modeled=null;
+ try {modeled=renderExistingN5Proposal(proposalPayload(quote)).rounded_rate_revenue;}catch{}
+ const peq=Number(quote.current_payload.section_1_static?.storage_pallet_equivalent)||0;
+ const operational=modeled?.total_variable_revenue;
+ const customMonth=p.rows.filter(r=>r.custom&&r.billing_frequency!=="one_time"&&r.value!==null).reduce((n,r)=>n+r.value,0);
+ const customOnce=p.rows.filter(r=>r.custom&&r.billing_frequency==="one_time"&&r.value!==null).reduce((n,r)=>n+r.value,0);
+ $("achieved").textContent=operational!==undefined&&peq>0?fmt(Math.round(operational/peq*100)/100):"Not projected";
+ $("monthly").textContent=operational!==undefined?fmt(operational+customMonth):"Not projected";
+ $("oneTime").textContent=fmt(customOnce);
+ const issues=pricingIssues(quote);
+ $("forecast").textContent=issues.length?issues.join(" · "):"Operating forecast uses the original N5 calculation. BOL volume comes from outbound shipments. Custom recurring charges are shown separately; N3 target changes still require optimization.";
  for(const section of SECTIONS){
  const box=el("section","rates"),heading=el("h2","",sectionLabels[section]);box.append(heading);
  const head=el("div","line line-head");
- for(const title of ["Service","Billing unit","Rate","Est. value",""])head.append(el("span","",title));box.append(head);
+ for(const title of ["Service","Billing unit","Rate","Forecast qty","Est. line value",""])head.append(el("span","",title));box.append(head);
  for(const r of p.rows.filter(r=>r.section===section))box.append(lineView(r));
  wrap.append(box);
  }
@@ -112,17 +126,79 @@ function openRateCardPreview(){
     if(/^on/i.test(attr.name))node.removeAttribute(attr.name);
    }
   });
+  const meta=doc.createElement("div");
+  meta.style.cssText="font:700 11px Arial,sans-serif;margin-top:8px;color:#475569;line-height:1.6";
+  meta.textContent="Generated "+stamp(quote.generated_at||quote.baseline_payload?.generated_at)+" · Revision "+rev+" · "+(quote.finalized_at?"Finalized "+stamp(quote.finalized_at):"DRAFT PREVIEW — NOT ISSUED");
+  const header=doc.querySelector('td[align="left"]');if(header)header.appendChild(meta);
   $("previewFrame").srcdoc="<!doctype html>\n"+doc.documentElement.outerHTML;
-  const messages=["This is the original N5 email format, with your current line-item changes. Links are disabled and no email is sent."];
+  const messages=["Original N5 email layout, showing current edited rates and opportunity-derived quantities. Links are disabled; no email is sent."];
   if(quote.reprice_requested)messages.push("Target RPP was changed, but N3 has NOT redistributed charges. Do not send this quote until recalculated.");
-  if(quote.custom_items?.length)messages.push("Custom fees are visible in the proposal; their impact on RPP and contractual billing totals still requires pricing-engine reconciliation.");
-  if(quote.calculation_status==="needs_reconciliation")messages.push("Draft pricing is not yet financially reconciled.");
+  if(quote.custom_items?.length)messages.push("Custom charges display in the Administrative & Misc section. Monthly recurring custom fees are separate from operational RPP.");
+  if(quote.calculation_status==="needs_reconciliation"&&quote.reprice_requested)messages.push("Draft awaits N3 RPP optimization.");
   $("previewDetails").textContent=messages.join(" ");
   $("previewDialog").showModal();
  }catch(err){notice("Unable to render the N5 preview: "+err.message);}
 }
 $("preview").addEventListener("click",openRateCardPreview);
 $("closePreview").addEventListener("click",()=>$("previewDialog").close());
+
+
+function finalizedPresentationHtml(){
+ const n5=renderExistingN5Proposal(proposalPayload(quote));
+ const doc=new DOMParser().parseFromString(n5.html_body,"text/html");
+ doc.querySelectorAll("script,form").forEach(node=>node.remove());
+ doc.querySelectorAll("a").forEach(node=>{node.removeAttribute("href");node.style.pointerEvents="none";});
+ doc.querySelectorAll("*").forEach(node=>{for(const attr of [...node.attributes])if(/^on/i.test(attr.name))node.removeAttribute(attr.name)});
+ const meta=doc.createElement("div");meta.style.cssText="font:700 12px Arial,sans-serif;margin:10px 0;color:#1a202c;line-height:1.7";
+ meta.textContent="Rate Card Issued: "+stamp(quote.finalized_at||new Date().toISOString())+" · Revision "+rev+" · Reference "+quote.hwk_id;
+ const header=doc.querySelector('td[align="left"]');if(header)header.appendChild(meta);
+ return "<!doctype html>\n"+doc.documentElement.outerHTML;
+}
+function exportPresentation(download=true){
+ const blob=new Blob([finalizedPresentationHtml()],{type:"text/html;charset=utf-8"});
+ const href=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=href;
+ if(download){a.download="Scapegoat-Rate-Card-"+String(quote.hwk_id).replace(/[^a-z0-9-]/gi,"-")+"-Rev"+rev+".html";a.click();}
+ else{a.target="_blank";a.rel="noopener";a.click();}
+ setTimeout(()=>URL.revokeObjectURL(href),30000);
+}
+$("publish").addEventListener("click",()=>{
+ if(!quote||busy)return;
+ if(changes.length&&mode==="live"){notice("Save your changes before finalizing.");return}
+ const issues=pricingIssues(quote);if(issues.length){notice(issues.join(" · "));return}
+ $("finalizeSummary").textContent="Opportunity "+quote.hwk_id+" · Revision "+rev+" · Generated "+stamp(quote.generated_at)+" · All finalizations are time-stamped.";
+ $("deliveryMethod").value="presentation";$("deliveryMethod").dispatchEvent(new Event("change"));
+ $("finalizeDialog").showModal();
+});
+$("cancelFinalize").addEventListener("click",()=>$("finalizeDialog").close());
+$("deliveryMethod").addEventListener("change",()=>{
+ const destination=$("deliveryMethod").value;
+ const candidate=destination==="customer"?quote?.current_payload?.section_1_static?.lead_email:destination==="warehouse"?quote?.current_payload?.section_1_static?.warehouse_email:null;
+ $("recipientLabel").hidden=destination==="presentation";
+ $("recipientName").textContent=destination==="customer"?"Verified customer email":"Verified warehouse email";
+ $("recipient").value=candidate||"";
+ $("deliveryWarning").textContent=destination==="presentation"
+ ? "You can finalize a local demo and download a presentation copy. Live finalization requires the backend staging API."
+ : "Email delivery is not connected yet. Only verified opportunity recipients may be used, and no message will be sent from this demo.";
+ $("confirmFinalize").disabled=destination!=="presentation";
+});
+$("confirmFinalize").addEventListener("click",async()=>{
+ if(!quote||busy||$("deliveryMethod").value!=="presentation")return;
+ if(mode==="demo"){
+  quote.status="finalized";quote.finalized_at=new Date().toISOString();
+  $("finalizeDialog").close();notice("Demo rate card finalized at "+stamp(quote.finalized_at)+". Downloading a presentation copy; no email sent.",true);
+  render();exportPresentation(true);return;
+ }
+ // Production-grade finalization must be server-committed, timestamped and read-only.
+ // The staging API is intentionally gated until the authorization and N3 checks are complete.
+ busy=true;render();try{
+  const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
+  quote=result.draft;rev=result.revision;$("finalizeDialog").close();
+  notice("Rate card finalized and timestamped; downloading presentation copy. No email sent.",true);
+  exportPresentation(true);
+ }catch(e){notice("Finalization was not completed: "+e.message);}
+ busy=false;render();
+});
 
 const query=new URLSearchParams(location.search);quoteId=query.get("quote_id")||"";
 const fragment=new URLSearchParams(location.hash.slice(1));const supplied=fragment.get("access_token");
@@ -138,6 +214,6 @@ else if(query.get("demo")==="1"){
  baseline_payload.section_4_outbound={DTC:{dtc_vol:0},B2B:{retail_vol:0},PalletOut:{pallet_vol:10,pallets_per_order:10,b2b_pallet_out:13,bol_fee:8}};
  baseline_payload.section_4_outbound_rows.push({field_name:"bol_fee",cost:8,assumption:"Per outbound shipment"});
  baseline_payload.section_5_misc={monthly_minimum:1000};
- quote=newDraft({quote_id:"DEMO",hwk_id:"HWK-DEMO",warehouse_id:"DEMO",baseline_payload});rev=1;
+ quote=newDraft({quote_id:"DEMO",hwk_id:"HWK-DEMO",warehouse_id:"DEMO",baseline_payload});quote.generated_at=new Date().toISOString();rev=1;
  notice("Synthetic demo: edit rates and add fees. No data is saved or sent.",true);render();
 }else render();
