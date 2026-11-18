@@ -59,12 +59,62 @@ export default {async fetch(req,env){
    const link=env.EDITOR_ORIGIN+"/?quote_id="+encodeURIComponent(id)+"#access_token="+encodeURIComponent(access);
    return json({quote_id:id,edit_url:link,expires_at:expires},201,allowed);
   }
-  const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize)?$/i.exec(url.pathname);
+  const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize|\/deliver)?$/i.exec(url.pathname);
   if(!match||!UUID.test(match[1]))return json({error:"Not found"},404,allowed);
   const id=match[1],link=await authorization(env,id,req);if(!link)return json({error:"Invalid or expired edit link"},401,allowed);
   const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
-  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&Boolean(env.EMAIL_DELIVERY_WEBHOOK)&&Boolean(env.EMAIL_DELIVERY_KEY),...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  if(match[2]==="/deliver"){
+   if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
+   // Deliberate fail-closed gate: no outbound email until a separately reviewed
+   // Child Workflow sender is live and its credential is securely configured.
+   if(env.ENABLE_EMAIL_DELIVERY!=="true"||!env.EMAIL_DELIVERY_WEBHOOK||!env.EMAIL_DELIVERY_KEY)
+     return json({error:"Verified email delivery is not configured"},503,allowed);
+   if(stored.status!=="finalized"||!stored.final_html||!stored.finalized_at)
+     return json({error:"Finalize this revision before requesting delivery"},409,allowed);
+   const body=await bodyJson(req);
+   if(!["customer","warehouse"].includes(body.channel)||body.to||body.recipient)
+     return json({error:"Select a verified customer or warehouse delivery channel"},422,allowed);
+   if(body.expected_revision!==stored.revision)
+     return json({error:"Revision conflict"},409,allowed);
+   const source=stored.draft_payload?.baseline_payload?.verified_recipients;
+   if(source?.verified!==true)return json({error:"Verified recipients have not been attached to this opportunity"},422,allowed);
+   const email=source[body.channel]?.toLowerCase().trim();
+   if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+     return json({error:"No verified email available for this delivery channel"},422,allowed);
+   const existing=await db(env,"GET","sg_opportunity_rate_quote_deliveries",
+     "select=delivery_id,status,requested_at&quote_id=eq."+id+"&revision=eq."+stored.revision+"&channel=eq."+body.channel+"&limit=1");
+   if(existing?.length)return json({error:"A delivery request already exists for this revision/channel; contact Hawkish for reconciliation"},409,allowed);
+   const deliveryId=crypto.randomUUID();
+   await db(env,"POST","sg_opportunity_rate_quote_deliveries","",{
+     delivery_id:deliveryId,quote_id:id,revision:stored.revision,channel:body.channel,
+     recipient_email:email,status:"pending"
+   },"return=minimal");
+   let result;
+   try{
+     result=await fetch(env.EMAIL_DELIVERY_WEBHOOK,{method:"POST",headers:{
+       "content-type":"application/json","x-quote-delivery-key":env.EMAIL_DELIVERY_KEY
+     },body:JSON.stringify({delivery_id:deliveryId,quote_id:id,revision:stored.revision,
+       hwk_id:stored.hwk_id,channel:body.channel,recipient_email:email,
+       finalized_at:stored.finalized_at,html_body:stored.final_html})});
+   }catch(error){
+     await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
+       {status:"failed",failure_reason:"Webhook transport error"},"return=minimal");
+     return json({error:"Delivery transport failed. Contact Hawkish before retrying."},502,allowed);
+   }
+   if(!result.ok){
+     await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
+       {status:"failed",failure_reason:"Webhook response "+result.status},"return=minimal");
+     return json({error:"Delivery workflow rejected the message; manual review required"},502,allowed);
+   }
+   const acceptedAt=new Date().toISOString();
+   await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
+     {status:"accepted",accepted_at:acceptedAt},"return=minimal");
+   // 202 means the n8n sender accepted the request, not confirmation that Gmail sent it.
+   return json({delivery_id:deliveryId,delivery_status:"accepted",accepted_at:acceptedAt,
+     message:"Delivery accepted for processing; awaiting a provider send confirmation."},202,allowed);
+  }
   if(match[2]==="/finalize"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
    if(env.ENABLE_FINALIZATION!=="true")return json({error:"Server-side finalization is not enabled for this environment"},503,allowed);
