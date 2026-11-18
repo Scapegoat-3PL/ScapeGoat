@@ -2,15 +2,19 @@
 -- Apply to a development Supabase branch/project after review, NOT production.
 -- No existing warehouse, blanket rate, or quote table is altered.
 begin;
+create extension if not exists pgcrypto with schema extensions;
 create table if not exists public.sg_opportunity_rate_quotes (
   quote_id uuid primary key default gen_random_uuid(),
   hwk_id text not null check (length(hwk_id) between 4 and 100),
   warehouse_id uuid not null references public.warehouses(warehouse_id),
   revision integer not null default 1 check (revision > 0),
-  status text not null default 'draft' check (status in ('draft','ready_to_publish','published','superseded')),
+  status text not null default 'draft' check (status in ('draft','ready_to_publish','finalized','published','superseded')),
   baseline_payload jsonb not null check (jsonb_typeof(baseline_payload)='object'),
   draft_payload jsonb not null check (jsonb_typeof(draft_payload)='object'),
   editor_source text not null default 'n8n-generator',
+  finalized_at timestamptz,
+  final_html text,
+  constraint sg_oq_finalized_complete check (status <> 'finalized' or (finalized_at is not null and final_html is not null)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -43,6 +47,7 @@ begin
      new.baseline_payload is distinct from old.baseline_payload then
       raise exception 'Quote identity and baseline are immutable';
   end if;
+  if old.status = 'finalized' then raise exception 'Finalized quotes are immutable'; end if;
   if new.revision <> old.revision+1 then raise exception 'Quote revision must increment by exactly one'; end if;
   new.updated_at := now();
   return new;
@@ -53,7 +58,7 @@ returns trigger language plpgsql set search_path = ''
 as $$
 begin
   insert into public.sg_opportunity_rate_quote_versions(quote_id,revision,status,snapshot,editor_source)
-  values(new.quote_id,new.revision,new.status,new.draft_payload,new.editor_source);
+  values(new.quote_id,new.revision,new.status,jsonb_build_object('draft',new.draft_payload,'finalized_at',new.finalized_at,'html_sha256',case when new.final_html is null then null else encode(extensions.digest(new.final_html,'sha256'),'hex') end),new.editor_source);
   return null;
 end;
 $$;
