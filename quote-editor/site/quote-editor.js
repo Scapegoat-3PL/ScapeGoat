@@ -6,7 +6,7 @@ const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-U
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const apiOrigin=location.origin; // Cloudflare Worker routes /api/* on this same preview origin
-let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="",savedFinalHtml=null;
+let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="",savedFinalHtml=null,deliveryEnabled=false;
 const stamp=when=>when?new Intl.DateTimeFormat("en-US",{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
 function staged(op,next,msg){quote=next;changes.push(op);notice(msg);render()}
@@ -36,11 +36,12 @@ function render(){
  $("revision").textContent=quote?"Revision "+rev+" · "+changes.length+" unsaved change(s)":"Open from your quote email";
  $("timeInfo").textContent=quote?"Generated "+stamp(quote.generated_at||quote.baseline_payload?.generated_at||quote.baseline_payload?.section_1_static?.generated_at)+" · "+(quote.finalized_at?"Finalized "+stamp(quote.finalized_at):"Draft"):"";
  $("target").value=quote?.requested_target_rpp??"";
- $("target").disabled=!quote||busy;$("add").disabled=!quote||busy;
+ $("target").disabled=!quote||busy||quote.status!=="draft";$("add").disabled=!quote||busy||quote.status!=="draft";
  $("preview").disabled=!quote||busy;
- $("save").disabled=mode!=="live"||!quote||busy||changes.length===0;
+ $("save").disabled=mode!=="live"||!quote||busy||quote.status!=="draft"||changes.length===0;
  $("reload").hidden=mode!=="live";
- $("publish").disabled=!quote||busy||quote.status!=="draft"||changes.length>0&&mode==="live"||pricingIssues(quote).length>0;
+ $("publish").textContent=quote?.status==="finalized"?"Deliver / Download Final Rate Card":"Finalize Rate Card";
+ $("publish").disabled=!quote||busy||quote.status!=="draft"&&quote.status!=="finalized"||(quote.status==="draft"&&((changes.length>0&&mode==="live")||pricingIssues(quote).length>0));
  const wrap=$("sections");wrap.replaceChildren();
  if(!quote){wrap.append(el("p","sub","No rate card loaded. Open an authorized link or add ?demo=1 to the URL for a synthetic demonstration."));return}
  const p=preview(quote);
@@ -70,7 +71,7 @@ async function api(path,method="GET",body=null){
 }
 async function load(){
  if(mode!=="live")return;busy=true;render();notice("Loading secure quote...");
- try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
+ try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;deliveryEnabled=result.delivery_enabled===true;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
  catch(e){quote=null;notice("Unable to load: "+e.message)}
  busy=false;render();
 }
@@ -159,38 +160,56 @@ function exportPresentation(download=true){
 $("publish").addEventListener("click",()=>{
  if(!quote||busy)return;
  if(changes.length&&mode==="live"){notice("Save your changes before finalizing.");return}
- const issues=pricingIssues(quote);if(issues.length){notice(issues.join(" · "));return}
- $("finalizeSummary").textContent="Opportunity "+quote.hwk_id+" · Revision "+rev+" · Generated "+stamp(quote.generated_at)+" · All finalizations are time-stamped.";
+ if(quote.status==="draft"){const issues=pricingIssues(quote);if(issues.length){notice(issues.join(" · "));return}}
+ $("finalizeSummary").textContent="Opportunity "+quote.hwk_id+" · Revision "+rev+" · Generated "+stamp(quote.generated_at)+(quote.finalized_at?" · Finalized "+stamp(quote.finalized_at):" · Finalization will record an immutable issue time.");
+ $("openPresentation").hidden=quote.status!=="finalized";
  $("deliveryMethod").value="presentation";$("deliveryMethod").dispatchEvent(new Event("change"));
  $("finalizeDialog").showModal();
 });
 $("cancelFinalize").addEventListener("click",()=>$("finalizeDialog").close());
 $("deliveryMethod").addEventListener("change",()=>{
  const destination=$("deliveryMethod").value;
- const candidate=destination==="customer"?quote?.current_payload?.section_1_static?.lead_email:destination==="warehouse"?quote?.current_payload?.section_1_static?.warehouse_email:null;
+ const allowed=quote?.baseline_payload?.verified_recipients;
+ const candidate=allowed?.verified===true&&destination!=="presentation"?allowed[destination]:null;
  $("recipientLabel").hidden=destination==="presentation";
  $("recipientName").textContent=destination==="customer"?"Verified customer email":"Verified warehouse email";
  $("recipient").value=candidate||"";
+ const emailPossible=deliveryEnabled&&quote?.status==="finalized"&&mode==="live"&&Boolean(candidate);
  $("deliveryWarning").textContent=destination==="presentation"
- ? "You can finalize a local demo and download a presentation copy. Live finalization requires the backend staging API."
- : "Email delivery is not connected yet. Only verified opportunity recipients may be used, and no message will be sent from this demo.";
- $("confirmFinalize").disabled=destination!=="presentation";
+ ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
+ : emailPossible?"Email is enabled for this verified recipient. Confirming requests one outbound email, recorded against this revision.":"Direct email requires a finalized quote, a verified recipient, and the approved n8n sending workflow. Nothing will be emailed until all three are ready.";
+ $("confirmFinalize").textContent=destination==="presentation"
+ ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
+ : "Send Final Rate Card";
+ $("confirmFinalize").disabled=destination!=="presentation"&&!emailPossible;
 });
+$("openPresentation").addEventListener("click",()=>{if(quote?.status==="finalized")exportPresentation(false)});
 $("confirmFinalize").addEventListener("click",async()=>{
- if(!quote||busy||$("deliveryMethod").value!=="presentation")return;
+ if(!quote||busy)return;
+ const method=$("deliveryMethod").value;
+ if(quote.status==="finalized"){
+  if(method==="presentation"){$("finalizeDialog").close();exportPresentation(true);return;}
+  if(mode!=="live"||!deliveryEnabled)return;
+  busy=true;render();
+  try{
+   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/deliver","POST",{expected_revision:rev,channel:method});
+   $("finalizeDialog").close();notice("Delivery request "+result.delivery_id+" accepted by the email workflow. This is NOT confirmation of successful sending.",true);
+  }catch(e){notice("Email was not sent: "+e.message)}
+  busy=false;render();return;
+ }
+ if(method!=="presentation")return; // A quote must be finalized before emailing.
  if(mode==="demo"){
   quote.status="finalized";quote.finalized_at=new Date().toISOString();
-  $("finalizeDialog").close();notice("Demo rate card finalized at "+stamp(quote.finalized_at)+". Downloading a presentation copy; no email sent.",true);
+  $("finalizeDialog").close();notice("Demo quote finalized at "+stamp(quote.finalized_at)+". Downloading a presentation copy; no email sent.",true);
   render();exportPresentation(true);return;
  }
- // Production-grade finalization must be server-committed, timestamped and read-only.
- // The staging API is intentionally gated until the authorization and N3 checks are complete.
- busy=true;render();try{
+ busy=true;render();
+ try{
   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
-  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;$("finalizeDialog").close();
-  notice("Rate card finalized and timestamped; downloading presentation copy. No email sent.",true);
+  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;
+  $("finalizeDialog").close();notice("Rate card finalized and timestamped. Presentation copy downloaded; no email sent.",true);
   exportPresentation(true);
- }catch(e){notice("Finalization was not completed: "+e.message);}
+ }catch(e){notice("Finalization was not completed: "+e.message)}
  busy=false;render();
 });
 
