@@ -1,61 +1,63 @@
-# SCAPEGOAT.OS — Opportunity Rate Card Editor
+# SCAPEGOAT.OS — Opportunity Quote Editor
 
-**Status:** Feature-branch code for review. **Not deployed; no live n8n workflows or production Supabase tables changed.**
+**Implementation status (Nov 18, 2026):** Code committed to an isolated feature branch; Cloudflare's separate preview Worker is Git-connected. **Do not merge or deploy against the production site.** The synthetic demo is available only once Cloudflare builds the latest commit. Backend persistence, finalized real quotes, and customer/warehouse email are not live.
 
-## What is implemented
+## Warehouse workflow
 
-- quote-editor.html: Scapegoat-branded, responsive opportunity-level editor.
-- quote-editor.js: secure quote link loading, individual rate edits, new service charges, quote-specific target RPP input, draft saving and reload, synthetic demo.
-- quote-editor-core.mjs: line overrides and manual locks, immutable generated baseline, RPP requests, operation validation, illustrative totals.
-- worker/index.mjs: Cloudflare staging API for authorized quote snapshots, scoped expiring edit tokens, GET, and optimistic-concurrency PATCH. No publish or email endpoint.
-- sql/001_opportunity_quote_editor.sql: additive RLS-protected Supabase tables and transactional revision history. Review-only; not applied.
-- tests/editor.test.mjs and .github/workflows/quote-editor-tests.yml: isolated Node tests and CI.
-- docs/n8n-integration-contract.md: N3/N4/N5 connection contract and subsequent Child Workflow ordering.
+**Generate → Edit → Preview → Finalize → Deliver / Present**
 
-## Warehouse experience
+1. Existing n8n N3/N4/N5 generation produces an opportunity-specific quote.
+2. A future secure "Edit Rate Card" email link reopens that one opportunity, never changing other warehouses' rates or regional blanket rates.
+3. The warehouse may change individual rates, add charges, and **edit source-backed forecast volumes** (including BOL outbound shipment quantity). BOL volume comes from `section_4_outbound.PalletOut.pallet_vol`; pallet-out quantities are recalculated consistently.
+4. "**Projected RPP ($/PEQ)**" is calculated from existing N5 operational monthly revenue and PEQs. "Modeled Monthly Revenue" and "One-time Charges" are separate. Custom monthly charges are displayed separately from operational RPP.
+5. "**Preview Revised Rate Card**" uses a frozen copy of the existing N5 HTML layout. Call-to-action links are disabled in previews. A quote summary shows generated/finalized timestamps, version, N5 operating revenue and modeled custom charges.
+6. "**Finalize Rate Card**" takes a server timestamp, increments revision, reconciles with N5 and makes that revision immutable. Changing Target RPP remains blocked for finalization until authoritative N3 repricing is connected.
+7. "**Deliver / Download Final Rate Card**" supports (a) HTML download for forwarding or screenshare; (b) a queued send to the verified customer; or (c) queued send to the verified warehouse. Sending stays **disabled** until a separately approved n8n delivery child workflow is configured.
 
-A secure Edit Rate Card link will eventually appear in the existing warehouse quote email. The warehouse can edit a single line or add an additional charge without affecting other pricing. Changing the target RPP is a separate request for N3 optimizer reconciliation; negotiated individual line rates should remain locked.
+### Status of the delivery options
 
-Save creates a draft only. Sending a revised quote is disabled until authoritative N3 calculations and the original-format N5 rendering have been connected and approved.
+| Option | Browser demo | Real connected quote |
+|---|---|---|
+| Download finalized presentation | Simulated local finalization and HTML download | Built, gated behind staging Supabase + Worker secrets + `ENABLE_FINALIZATION=true` |
+| Open for screenshare | Built after local demo finalization | Built, gated until finalization |
+| Email directly to customer | Visible but disabled | Built API outbox/hand-off; requires verified customer recipient, approved n8n sender, delivery key and `ENABLE_EMAIL_DELIVERY=true` |
+| Email to warehouse | Visible but disabled | Same requirements with verified warehouse recipient |
 
-## Local synthetic demo
+The server will **not** trust a browser-entered email address. It requires an immutable, trusted `verified_recipients` snapshot with `verified:true` and fixed `customer`/`warehouse` values, attached by the approved source workflow. Delivery requests are audited and deduplicated per quote, revision, and channel. A 202 response means **accepted**, never proof of Gmail transmission.
 
-From the repository root, start a local server:
+## Repo files
 
-    python3 -m http.server 8765
+- `site/index.html`, `site/quote-editor.js` — deployed Cloudflare editor UI.
+- `site/quote-editor-core.mjs`, `quote-editor-core.mjs` — rate and source-volume changes, original baseline, pending RPP flag.
+- `site/n5-proposal-renderer.mjs` — frozen copy of current N5 email renderer.
+- `site/quote-release.mjs`, `quote-release.mjs` — date-stamped N5 final/presentation output and cost summary.
+- `worker/index.mjs`, `worker/site-router.mjs` — isolated HTTP API plus secure static routing.
+- `sql/001_opportunity_quote_editor.sql` — review-only RLS-protected database schema, immutable finalization, version history, delivery outbox.
+- `tests/*.test.mjs` — GitHub Actions regression tests.
+- `docs/n8n-integration-contract.md` — one-child-workflow-at-a-time integration plan.
+- `wrangler.jsonc` — **repo root** Cloudflare preview configuration. This branch must be deployed via Worker Builds, not merged into main.
 
-Visit:
+No secrets are in GitHub. Cloudflare runtime requires `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `INTERNAL_API_KEY` as secrets, `EDITOR_ORIGIN` set to preview origin, and finalization flag off until staging tests pass. Email requires `EMAIL_DELIVERY_WEBHOOK` and `EMAIL_DELIVERY_KEY` secrets and a separately approved sender.
 
-    http://localhost:8765/quote-editor/quote-editor.html?demo=1
+## GitHub development checks
 
-The demo runs entirely in the browser with synthetic data. Save and Publish are disabled.
+Syntax validation and unit tests are run automatically on draft PR #1. Test cases cover BOL forecast quantity and dependent pallets, custom fees, original N5 layout, $100 negotiated rate reduction, immutable timestamped finalization, and locked RPP conditions.
 
-Run the tests:
+## n8n status
 
-    node --test quote-editor/tests/*.test.mjs
+Created and tagged an **inactive** child workflow with an approved goal sticky note:
+[Child Workflow — Opportunity Quote Snapshot — Pilot](https://seanskin.app.n8n.cloud/workflow/kaDkGekfNhXAw3XT).
 
+It validates a generated N4 quote and source forecast sections but intentionally **does not make external writes**. Connect it to the Worker staging API only after staging data storage is provisioned and its output reviewed. Do not change the existing live 77-node workflow `Scapegoat v1 Hawkish Live`.
 
-## Preview Revised Rate Card — implemented (branch only)
+## Remaining blockers
 
-Use the **Preview Revised Rate Card** button after making individual edits or adding custom charges. The preview calls a verbatim wrapped copy of the current live N5 proposal rendering code in `site/n5-proposal-renderer.mjs`, so the **client-facing email layout** is preserved; no extra n8n rendering round trip is needed just to see it.
+1. Cloudflare latest **feature-branch** deployment has to finish; this chat cannot verify Cloudflare deployment automatically.
+2. Supabase **staging branch** needs billing cost approval before creation. There is none yet. The SQL has **not** been applied to production.
+3. The Cloudflare Worker needs staging secrets plus a database; finalization is gated by `ENABLE_FINALIZATION=false`.
+4. The first n8n Child Workflow's staging snapshot handoff must be wired and tested before building another child workflow.
+5. N3 target RPP optimizer must be connected for **new target RPP** requests, preserving negotiated rate locks.
+6. Verified customer/warehouse recipients, a separate n8n sender and send confirmations are required before enabling email.
+7. Final security review must validate opportunity-to-warehouse association server-side before issuing any customer edit link.
 
-- The demo is at the separate Cloudflare Workers preview URL with `?demo=1` once that feature-branch build has deployed.
-- Any pending manual line rate edit appears in the original N5 table and in the operational section logic where N5 has supporting volumes.
-- Added custom fees appear using the existing N5 service/price/assumptions columns; billing unit and frequency are included in the assumptions cell.
-- All call-to-action links are disabled in the sandboxed preview; no acceptance webhook is triggered and no quote email is sent.
-- Changing **Target RPP** is still a *repricing request*, not an N3 execution. The preview explicitly warns that optimized charges have not yet been recalculated; do not publish until N3 has reconciled it.
-- For custom charges, inclusion in forecast revenue and achieved RPP still requires explicit pricing-engine support. The N5 presentation should not silently imply unknown charges are modeled.
-- Because the code is a frozen copy of N5, future live N5 format changes must be synchronized and regression tested here before publication.
-
-GitHub Actions tests cover the original-format N5 render, the effect of a negotiated $100 rate reduction on a container minimum, unchanged unrelated charges, and custom-line visibility.
-
-## Remaining release gates
-
-1. Review pull request and CI; configure isolated Cloudflare preview deployment (not live root-domain routing).
-2. Apply the additive SQL to a staging Supabase environment only after review.
-3. Deploy the Worker with staging secrets and the exact preview origin; update the browser API URL from its placeholder.
-4. Build one n8n Child Workflow at a time: Quote Snapshot, then N3 Reprice, then N5 Render/Send. Tag each Child Workflow and attach its agreed goal.
-5. Verify HWK-to-warehouse authorization, forecast quantities, RPP reconciliation, discounts, and quote revisions.
-6. Obtain explicit approval for production workflow changes, customer emails, merging, and deployment.
-
-The original root-level index.html, pricing.html, onboard.html and CNAME are unchanged.
+**Not included:** Retroactively editing old rate cards that were never saved as structured quote snapshots. No production main-branch changes, active n8n workflow modifications or live outbound emails.
