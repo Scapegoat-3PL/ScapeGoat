@@ -47,6 +47,7 @@ export function operations(source,ops){
  return ops.reduce((d,op)=>{
  switch(op.type){
  case "edit_rate":return changeRate(d,op.section,op.field_name,op.rate);
+ case "edit_quantity":return changeQuantity(d,op.section,op.field_name,op.quantity);
  case "reset_rate":return resetRate(d,op.section,op.field_name);
  case "add_line":return addLine(d,op);
  case "remove_line":return removeLine(d,op.id);
@@ -58,12 +59,79 @@ export function operations(source,ops){
 export function preview(d){
  const rows=[];let operational=0,monthlyOther=0,oneTime=0,unknown=0;
  for(const section of SECTIONS)for(const r of d.current_payload[section]){
- const qty=r.forecast_quantity,known=qty!==undefined&&qty!==null&&Number.isFinite(Number(qty))&&Number(qty)>=0;
+ const qty=getForecastQuantity(d,section,r.field_name).quantity,known=qty!==undefined&&qty!==null&&Number.isFinite(Number(qty))&&Number(qty)>=0;
  const price=Number(r.cost),value=known?Math.round(Number(qty)*price*100)/100:null,frequency=r.billing_frequency||"recurring";
  const inRpp=section!=="section_5_misc_rows"&&frequency!=="one_time"&&r.included_in_rpp!==false;
- if(value===null)unknown++;else if(frequency==="one_time")oneTime+=value;else if(inRpp)operational+=value;else monthlyOther+=value;
- rows.push({...r,section,value});
+ if(value===null&&r.custom)unknown++;else if(value===null){}else if(frequency==="one_time")oneTime+=value;else if(inRpp)operational+=value;else monthlyOther+=value;
+ rows.push({...r,section,value,forecast_quantity:qty,quantity_source:getForecastQuantity(d,section,r.field_name).source});
  }
  const peq=Number(d.current_payload.section_1_static?.storage_pallet_equivalent);
  return {rows,monthly:Math.round((operational+monthlyOther)*100)/100,oneTime:Math.round(oneTime*100)/100,rpp:Number.isFinite(peq)&&peq>0?Math.round(operational/peq*100)/100:null,unknown};
+}
+
+
+// Resolve quantities from the ORIGINAL opportunity volume model instead of
+// requiring duplicate forecast inputs on each price row. This avoids falsely
+// reporting missing BOL/warehouse volumes.
+export function getForecastQuantity(d,section,id){
+ const p=d.current_payload,s2=p.section_2_inbound||{},s3=p.section_3_storage||{},s4=p.section_4_outbound||{};
+ const pc=s4.PalletOut||{},dtc=s4.DTC||{},b2b=s4.B2B||{};
+ const n=(...values)=>{for(const v of values){if(v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v)))return Number(v)}return null};
+ const m=(a,b)=>a===null||b===null?null:Math.round(a*b*100)/100;
+ const palletIn=n(s2.pallet_avg_inbound_qty_per_month,s2.pallet_monthly_inbound_vol,s2.pallet_inbound_vol);
+ const palletPer=n(s2.pallet_avg_qty_per_inbound,s2.pallet_qty_per_inbound);
+ const conIn=n(s2.container_avg_inbound_qty_per_month,s2.container_monthly_inbound_vol,s2.container_inbound_vol);
+ const cartons=n(s2.container_avg_qty_per_inbound,s2.container_qty_per_inbound);
+ const shipments=n(pc.pallet_vol);
+ const palletPerOrder=n(pc.pallets_per_order);
+ const dtcOrders=n(dtc.dtc_vol),units=n(dtc.unit_per_order),b2bOrders=n(b2b.retail_vol),cases=n(b2b.cases_per_order);
+ const known={
+  inbound_pallet:m(palletIn,palletPer),
+  master_carton_in:m(conIn,cartons),
+  inbound_container_min:conIn,
+  storage_pallet_base:n(s3.Storage_Qty,s3.storage_pallet_equivalent,p.section_1_static?.storage_pallet_equivalent),
+  SQFT_rate:n(s3.Storage_Qty),
+  b2c_order_fee:dtcOrders,
+  b2c_unit_pick:m(dtcOrders,units),
+  b2b_order_fee:b2bOrders,
+  b2b_carton_pick_fee:m(b2bOrders,cases),
+  b2b_pallet_out:m(shipments,palletPerOrder),
+  bol_fee:shipments
+ };
+ if(Object.hasOwn(known,id)&&known[id]!==null)return {quantity:known[id],source:"opportunity",derived:true};
+ const row=p[section]?.find(r=>r.field_name===id);
+ const val=row?.forecast_quantity;
+ return {quantity:val===null||val===undefined||val===""?null:Number(val),source:row?.custom?"custom":"manual",derived:false};
+}
+export function changeQuantity(source,section,id,quantity){
+ validate(source,section);const d=copy(source),q=amount(quantity),p=d.current_payload;
+ const r=p[section]?.find(x=>x.field_name===id);if(!r)throw Error("Unknown rate line");
+ const s2=p.section_2_inbound??={};const s3=p.section_3_storage??={};const s4=p.section_4_outbound??={};
+ const pc=s4.PalletOut??={};const dtc=s4.DTC??={};const b2b=s4.B2B??={};
+ const divide=(x,y)=>{if(!Number.isFinite(Number(y))||Number(y)<=0)throw Error("Enter the parent shipment/order volume first");return x/Number(y)};
+ switch(id){
+  case "bol_fee":pc.pallet_vol=q;break;
+  case "b2b_pallet_out":pc.pallets_per_order=divide(q,pc.pallet_vol);break;
+  case "storage_pallet_base":s3.Storage_Qty=q;s3.storage_pallet_equivalent=q;p.section_1_static.storage_pallet_equivalent=q;break;
+  case "SQFT_rate":s3.Storage_Qty=q;break;
+  case "inbound_container_min":s2.container_avg_inbound_qty_per_month=q;break;
+  case "master_carton_in":s2.container_avg_qty_per_inbound=divide(q,s2.container_avg_inbound_qty_per_month);break;
+  case "inbound_pallet":s2.pallet_avg_inbound_qty_per_month=divide(q,s2.pallet_avg_qty_per_inbound);break;
+  case "b2c_order_fee":dtc.dtc_vol=q;break;
+  case "b2c_unit_pick":dtc.unit_per_order=divide(q,dtc.dtc_vol);break;
+  case "b2b_order_fee":b2b.retail_vol=q;break;
+  case "b2b_carton_pick_fee":b2b.cases_per_order=divide(q,b2b.retail_vol);break;
+  default:r.forecast_quantity=q;break;
+ }
+ const custom=d.custom_items.find(x=>x.id===id);if(custom)custom.quantity=q;
+ d.quantity_overrides??={};d.quantity_overrides[section+":"+id]={quantity:q,changed_at:new Date().toISOString()};
+ return dirty(d);
+}
+export function pricingIssues(d){
+ const issues=[];if(d.reprice_requested)issues.push("Target RPP requires N3 optimization before finalization");
+ for(const item of d.custom_items){
+  const row=d.current_payload[item.section]?.find(r=>r.field_name===item.id);
+  if(row?.forecast_quantity==null)issues.push("Forecast quantity missing for "+item.description);
+ }
+ return issues;
 }
