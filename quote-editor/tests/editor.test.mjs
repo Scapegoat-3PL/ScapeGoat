@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {newDraft,changeRate,addLine,resetRate,removeLine,targetRpp,operations,preview} from "../quote-editor-core.mjs";
+import {newDraft,changeRate,addLine,resetRate,removeLine,targetRpp,operations,preview,changeQuantity,getForecastQuantity,pricingIssues} from "../quote-editor-core.mjs";
 const original={section_1_static:{Warehouse_rpp:50,storage_pallet_equivalent:100},section_2_inbound_rows:[{field_name:"inbound_container_min",cost:850,forecast_quantity:2,billing_unit:"container"}],section_3_storage_rows:[{field_name:"storage_pallet_base",cost:20,forecast_quantity:100}],section_4_outbound_rows:[{field_name:"b2b_pallet_out",cost:13,forecast_quantity:100}],section_5_misc_rows:[]};
 const draft=()=>newDraft({quote_id:"test-quote",hwk_id:"HWK-TEST",warehouse_id:"test-warehouse",baseline_payload:original});
 test("negotiated rate changes one line and preserves immutable baseline",()=>{
@@ -30,8 +30,26 @@ test("reject invalid rates and unauthorized operations",()=>{
  assert.throws(()=>addLine(draft(),{id:"invalid",section:"section_5_misc_rows",description:"x",rate:1,unit:"each",frequency:"one_time"}),/Invalid/);
  assert.throws(()=>operations(draft(),[{type:"change_warehouse",warehouse_id:"fake"}]),/Unsupported/);
 });
-test("quantities missing produce incomplete previews, not invented totals",()=>{
+test("storage quantities derive from original opportunity PEQ and are no longer falsely missing",()=>{
  const d=draft();delete d.current_payload.section_3_storage_rows[0].forecast_quantity;
- assert.equal(preview(d).unknown,1);
- assert.equal(preview(d).rpp,30);
+ assert.equal(getForecastQuantity(d,"section_3_storage_rows","storage_pallet_base").quantity,100);
+ assert.equal(preview(d).unknown,0);
+ assert.equal(preview(d).rpp,50);
+});
+test("BOL forecast derives from outbound shipment volume and can be changed",()=>{
+ const d=draft();d.current_payload.section_4_outbound={PalletOut:{pallet_vol:10,pallets_per_order:10}};
+ d.current_payload.section_4_outbound_rows.push({field_name:"bol_fee",cost:8});
+ assert.equal(getForecastQuantity(d,"section_4_outbound_rows","bol_fee").quantity,10);
+ assert.equal(getForecastQuantity(d,"section_4_outbound_rows","b2b_pallet_out").quantity,100);
+ const revised=changeQuantity(d,"section_4_outbound_rows","bol_fee",8);
+ assert.equal(getForecastQuantity(revised,"section_4_outbound_rows","bol_fee").quantity,8);
+ assert.equal(getForecastQuantity(revised,"section_4_outbound_rows","b2b_pallet_out").quantity,80);
+ assert.equal(d.current_payload.section_4_outbound.PalletOut.pallet_vol,10);
+});
+test("missing custom forecast quantity blocks finalization and can be repaired",()=>{
+ const d=addLine(draft(),{id:"custom_newcharge",section:"section_5_misc_rows",description:"New handling",rate:25,unit:"case",frequency:"recurring"});
+ assert.match(pricingIssues(d).join(" "),/Forecast quantity missing/);
+ const amended=changeQuantity(d,"section_5_misc_rows","custom_newcharge",50);
+ assert.deepEqual(pricingIssues(amended),[]);
+ assert.equal(preview(amended).monthly,6250);
 });
