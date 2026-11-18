@@ -31,6 +31,27 @@ async function authorization(env,id,req){
  if(!found||found.quote_id!==id||found.revoked_at||Date.parse(found.expires_at)<=Date.now())return null;
  return found;
 }
+const emailFormat=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function emailValue(s){const v=String(s||"").trim().toLowerCase();return emailFormat.test(v)?v:null}
+async function trustedRecipients(env,hwkId,warehouseId){
+ // Independently cross-check lead-to-warehouse ownership at SEND time.
+ const wh=await db(env,"GET","warehouses","select=warehouse_id,warehouse_email,warehouse_name&warehouse_id=eq."+encodeURIComponent(warehouseId)+"&limit=1");
+ const warehouse=wh?.[0];if(!warehouse)return null;
+ let customer=null;
+ for(const table of ["VacancyChain","Hawkish"]){
+  const matches=await db(env,"GET",table,
+   "select=lead_id,warehouse_id,lead_email,email,selected_warehouse_name&lead_id=eq."+encodeURIComponent(hwkId)+"&limit=15");
+  for(const row of matches||[]){
+   if(String(row.warehouse_id||"").toLowerCase()!==String(warehouseId).toLowerCase())continue;
+   const parsed=emailValue(row.lead_email)||emailValue(row.email);
+   if(parsed){if(customer&&customer!==parsed)return null;customer=parsed;}
+  }
+ }
+ const warehouseEmail=emailValue(warehouse.warehouse_email);
+ if(!warehouseEmail&&!customer)return null;
+ return {verified:Boolean(warehouseEmail||customer),customer,warehouse:warehouseEmail};
+}
+
 function checkBaseline(payload){
  if(!payload||typeof payload!=="object"||Array.isArray(payload)||!payload.section_1_static)throw Error("Missing quote sections");
  for(const s of SECTIONS)if(!Array.isArray(payload[s]))throw Error("Missing "+s);
@@ -65,7 +86,8 @@ export default {async fetch(req,env){
   const id=match[1],link=await authorization(env,id,req);if(!link)return json({error:"Invalid or expired edit link"},401,allowed);
   const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
-  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&Boolean(env.EMAIL_DELIVERY_WEBHOOK)&&Boolean(env.EMAIL_DELIVERY_KEY),...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  const recipientStatus=env.ENABLE_EMAIL_DELIVERY==="true"?await trustedRecipients(env,stored.hwk_id,stored.warehouse_id):null;
+  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&recipientStatus?.verified===true,delivery_recipients:recipientStatus?.verified===true?recipientStatus:null,...(q.status==="finalized"?{final_html:q.final_html}:{})});
   if(match[2]==="/reprice"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
    if(stored.status!=="draft")return json({error:"Only drafts may be repriced"},409,allowed);
@@ -86,53 +108,31 @@ export default {async fetch(req,env){
   }
   if(match[2]==="/deliver"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
-   // Deliberate fail-closed gate: no outbound email until a separately reviewed
-   // Child Workflow sender is live and its credential is securely configured.
-   if(env.ENABLE_EMAIL_DELIVERY!=="true"||!env.EMAIL_DELIVERY_WEBHOOK||!env.EMAIL_DELIVERY_KEY)
-     return json({error:"Verified email delivery is not configured"},503,allowed);
+   // Aria polls the restricted pending-delivery table with existing Supabase
+   // credentials. No webhook key or new paid infrastructure.
+   if(env.ENABLE_EMAIL_DELIVERY!=="true")
+    return json({error:"Aria delivery queue is not yet enabled"},503,allowed);
    if(stored.status!=="finalized"||!stored.final_html||!stored.finalized_at)
-     return json({error:"Finalize this revision before requesting delivery"},409,allowed);
+    return json({error:"Finalize this revision before requesting delivery"},409,allowed);
    const body=await bodyJson(req);
    if(!["customer","warehouse"].includes(body.channel)||body.to||body.recipient)
-     return json({error:"Select a verified customer or warehouse delivery channel"},422,allowed);
-   if(body.expected_revision!==stored.revision)
-     return json({error:"Revision conflict"},409,allowed);
-   const source=stored.draft_payload?.baseline_payload?.verified_recipients;
-   if(source?.verified!==true)return json({error:"Verified recipients have not been attached to this opportunity"},422,allowed);
-   const email=source[body.channel]?.toLowerCase().trim();
-   if(!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
-     return json({error:"No verified email available for this delivery channel"},422,allowed);
-   const existing=await db(env,"GET","sg_opportunity_rate_quote_deliveries",
-     "select=delivery_id,status,requested_at&quote_id=eq."+id+"&revision=eq."+stored.revision+"&channel=eq."+body.channel+"&limit=1");
-   if(existing?.length)return json({error:"A delivery request already exists for this revision/channel; contact Hawkish for reconciliation"},409,allowed);
+    return json({error:"Select a verified customer or warehouse delivery channel"},422,allowed);
+   if(body.expected_revision!==stored.revision)return json({error:"Revision conflict"},409,allowed);
+   const recipients=await trustedRecipients(env,stored.hwk_id,stored.warehouse_id);
+   const email=recipients?.verified===true?recipients[body.channel]:null;
+   if(!email)return json({error:"No independently verified recipient for this opportunity/warehouse"},422,allowed);
    const deliveryId=crypto.randomUUID();
-   await db(env,"POST","sg_opportunity_rate_quote_deliveries","",{
-     delivery_id:deliveryId,quote_id:id,revision:stored.revision,channel:body.channel,
-     recipient_email:email,status:"pending"
-   },"return=minimal");
-   let result;
+   let inserted;
    try{
-     result=await fetch(env.EMAIL_DELIVERY_WEBHOOK,{method:"POST",headers:{
-       "content-type":"application/json","x-quote-delivery-key":env.EMAIL_DELIVERY_KEY
-     },body:JSON.stringify({delivery_id:deliveryId,quote_id:id,revision:stored.revision,
-       hwk_id:stored.hwk_id,channel:body.channel,recipient_email:email,
-       finalized_at:stored.finalized_at,html_body:stored.final_html})});
-   }catch(error){
-     await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
-       {status:"failed",failure_reason:"Webhook transport error"},"return=minimal");
-     return json({error:"Delivery transport failed. Contact Hawkish before retrying."},502,allowed);
-   }
-   if(!result.ok){
-     await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
-       {status:"failed",failure_reason:"Webhook response "+result.status},"return=minimal");
-     return json({error:"Delivery workflow rejected the message; manual review required"},502,allowed);
-   }
-   const acceptedAt=new Date().toISOString();
-   await db(env,"PATCH","sg_opportunity_rate_quote_deliveries","delivery_id=eq."+deliveryId,
-     {status:"accepted",accepted_at:acceptedAt},"return=minimal");
-   // 202 means the n8n sender accepted the request, not confirmation that Gmail sent it.
-   return json({delivery_id:deliveryId,delivery_status:"accepted",accepted_at:acceptedAt,
-     message:"Delivery accepted for processing; awaiting a provider send confirmation."},202,allowed);
+    inserted=await db(env,"POST","sg_opportunity_rate_quote_deliveries",
+     "on_conflict=quote_id,revision,channel&select=delivery_id,status,requested_at",
+     {delivery_id:deliveryId,quote_id:id,revision:stored.revision,channel:body.channel,
+      recipient_email:email,status:"pending"},
+     "resolution=ignore-duplicates,return=representation");
+   }catch(e){return json({error:"Could not queue delivery"},503,allowed)}
+   if(!inserted?.length)
+     return json({error:"This rate card revision has already been queued or sent to that channel"},409,allowed);
+   return json({delivery_id:deliveryId,delivery_status:"pending",message:"Queued for Aria; not yet confirmed sent."},202,allowed);
   }
   if(match[2]==="/finalize"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
