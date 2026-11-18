@@ -43,7 +43,7 @@ export default {async fetch(req,env){
  if(url.pathname==="/health"&&req.method==="GET")return json({ok:true,status:"staging"},200,allowed);
  try{
   if(url.pathname==="/api/internal/quotes"&&req.method==="POST"){
-   if(!equal(req.headers.get("x-internal-api-key")||"",env.INTERNAL_API_KEY))return json({error:"Unauthorized"},401,allowed);
+   if(!equal(req.headers.get("x-internal-api-key")||req.headers.get("apikey")||"",env.INTERNAL_API_KEY))return json({error:"Unauthorized"},401,allowed);
    const input=await bodyJson(req),id=crypto.randomUUID();
    if(typeof input.hwk_id!=="string"||input.hwk_id.length<4||input.hwk_id.length>100||!UUID.test(input.warehouse_id||""))return json({error:"Invalid opportunity identity"},422,allowed);
    checkBaseline(input.baseline_payload);
