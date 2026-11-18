@@ -35,7 +35,7 @@ jobs:
         run: |
           set -eu
           BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
-          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs; do
+          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs n3-reprice.mjs n3-engine.mjs n4-engine.mjs; do
             STATUS=$(curl -sSL --max-time 15 -o /tmp/scapegoat-asset -w '%{http_code}' "$BASE/$ASSET" || true)
             echo "Asset $ASSET HTTP $STATUS"
             if [[ "$STATUS" != "200" ]]; then
