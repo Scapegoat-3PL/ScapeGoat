@@ -5,7 +5,7 @@ const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"I
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-const apiOrigin="https://api.scapegoat3plwarehouserates.com"; // staging API is NOT deployed yet
+const apiOrigin=location.origin; // Cloudflare Worker routes /api/* on this same preview origin
 let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="";
 const stamp=when=>when?new Intl.DateTimeFormat("en-US",{dateStyle:"medium",timeStyle:"short",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
