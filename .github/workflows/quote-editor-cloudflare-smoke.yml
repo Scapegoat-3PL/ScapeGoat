@@ -30,6 +30,19 @@ jobs:
           fi
           # Diagnostics only: do not break source-code CI while Cloudflare
           # deploys from Git asynchronously or staging access is restricted.
+      - name: Verify all browser module assets are deployed
+        shell: bash
+        run: |
+          set -eu
+          BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
+          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs; do
+            STATUS=$(curl -sSL --max-time 15 -o /tmp/scapegoat-asset -w '%{http_code}' "$BASE/$ASSET" || true)
+            echo "Asset $ASSET HTTP $STATUS"
+            if [[ "$STATUS" != "200" ]]; then
+              echo "::error::Missing browser asset: $ASSET"
+              exit 1
+            fi
+          done
       - name: Check backend route is not mistakenly returning the static homepage
         shell: bash
         run: |
