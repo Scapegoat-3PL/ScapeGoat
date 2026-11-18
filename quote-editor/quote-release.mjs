@@ -7,7 +7,7 @@ import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
 import {SECTIONS,pricingIssues} from "./quote-editor-core.mjs";
 const dollars=n=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const escape=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
-const zone=d=>new Intl.DateTimeFormat("en-US",{timeZone:"America/Los_Angeles",timeZoneName:"short",dateStyle:"medium",timeStyle:"short"}).format(new Date(d));
+const zone=d=>new Intl.DateTimeFormat("en-US",{timeZone:"America/Los_Angeles",timeZoneName:"short",year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}).format(new Date(d));
 export function quotePayload(d){
  const payload=structuredClone(d.current_payload);
  payload.section_1_static??={};
