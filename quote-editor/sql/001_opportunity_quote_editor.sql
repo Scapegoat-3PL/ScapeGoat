@@ -73,5 +73,5 @@ revoke all on function public.sg_oq_guard() from public,anon,authenticated;
 revoke all on function public.sg_oq_audit() from public,anon,authenticated;
 grant all on public.sg_opportunity_rate_quotes to service_role;
 grant all on public.sg_opportunity_rate_quote_links to service_role;
-grant select on public.sg_opportunity_rate_quote_versions to service_role;
+grant select, insert on public.sg_opportunity_rate_quote_versions to service_role;
 commit;
