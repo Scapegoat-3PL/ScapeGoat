@@ -34,6 +34,21 @@ Run the tests:
 
     node --test quote-editor/tests/*.test.mjs
 
+
+## Preview Revised Rate Card — implemented (branch only)
+
+Use the **Preview Revised Rate Card** button after making individual edits or adding custom charges. The preview calls a verbatim wrapped copy of the current live N5 proposal rendering code in `site/n5-proposal-renderer.mjs`, so the **client-facing email layout** is preserved; no extra n8n rendering round trip is needed just to see it.
+
+- The demo is at the separate Cloudflare Workers preview URL with `?demo=1` once that feature-branch build has deployed.
+- Any pending manual line rate edit appears in the original N5 table and in the operational section logic where N5 has supporting volumes.
+- Added custom fees appear using the existing N5 service/price/assumptions columns; billing unit and frequency are included in the assumptions cell.
+- All call-to-action links are disabled in the sandboxed preview; no acceptance webhook is triggered and no quote email is sent.
+- Changing **Target RPP** is still a *repricing request*, not an N3 execution. The preview explicitly warns that optimized charges have not yet been recalculated; do not publish until N3 has reconciled it.
+- For custom charges, inclusion in forecast revenue and achieved RPP still requires explicit pricing-engine support. The N5 presentation should not silently imply unknown charges are modeled.
+- Because the code is a frozen copy of N5, future live N5 format changes must be synchronized and regression tested here before publication.
+
+GitHub Actions tests cover the original-format N5 render, the effect of a negotiated $100 rate reduction on a container minimum, unchanged unrelated charges, and custom-line visibility.
+
 ## Remaining release gates
 
 1. Review pull request and CI; configure isolated Cloudflare preview deployment (not live root-domain routing).
