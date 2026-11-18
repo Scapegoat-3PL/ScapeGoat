@@ -56,7 +56,7 @@ export default {async fetch(req,env){
    await db(env,"POST","sg_opportunity_rate_quotes","",{quote_id:id,hwk_id:input.hwk_id,warehouse_id:input.warehouse_id,revision:1,status:"draft",baseline_payload:input.baseline_payload,draft_payload:draft,editor_source:"n8n-generator"},"return=minimal");
    await db(env,"POST","sg_opportunity_rate_quote_links","",{quote_id:id,token_hash:await sha(access),expires_at:expires},"return=minimal");
    // A token is returned only to the privileged generator; do not send or log it publicly.
-   const link=env.EDITOR_ORIGIN+"/quote-editor/quote-editor.html?quote_id="+encodeURIComponent(id)+"#access_token="+encodeURIComponent(access);
+   const link=env.EDITOR_ORIGIN+"/?quote_id="+encodeURIComponent(id)+"#access_token="+encodeURIComponent(access);
    return json({quote_id:id,edit_url:link,expires_at:expires},201,allowed);
   }
   const match=/^\/api\/quotes\/([0-9a-f-]{36})(\/finalize)?$/i.exec(url.pathname);
