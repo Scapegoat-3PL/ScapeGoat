@@ -17,11 +17,11 @@ function lineView(r){
  if(quote.manual_overrides[r.section+":"+r.field_name])desc.append(el("span","tag","NEGOTIATED RATE"));
  if(r.custom)desc.append(el("span","tag","CUSTOM ITEM"));
  wrapper.append(desc,el("span","sub",r.billing_unit||"Per service"));
- const input=el("input");input.type="number";input.min="0";input.step=".01";input.value=r.cost;input.disabled=busy;
+ const input=el("input");input.type="number";input.min="0";input.step=".01";input.value=r.cost;input.disabled=busy||quote.status!=="draft";
  input.setAttribute("aria-label","Rate for "+(r.display_label||r.field_name));
  input.addEventListener("change",()=>{try{staged({type:"edit_rate",section:r.section,field_name:r.field_name,rate:input.value},changeRate(quote,r.section,r.field_name,input.value),"Only this rate changed; no RPP redistribution.");}catch(e){notice(e.message);render()}});
  const q=el("input");q.type="number";q.min="0";q.step=".01";q.placeholder="As needed";q.value=r.forecast_quantity??"";
- q.disabled=busy;q.setAttribute("aria-label","Monthly forecast quantity for "+(r.display_label||r.field_name));
+ q.disabled=busy||quote.status!=="draft";q.setAttribute("aria-label","Monthly forecast quantity for "+(r.display_label||r.field_name));
  q.title=r.quantity_source==="opportunity"?"Forecast derived from this opportunity. Changing it updates related volumes.":"Monthly forecast units; enter 0 if not forecast.";
  q.addEventListener("change",()=>{if(q.value===""){notice("Enter a forecast quantity or 0 for none. Existing source volumes are preserved.");return}
  try{staged({type:"edit_quantity",section:r.section,field_name:r.field_name,quantity:q.value},changeQuantity(quote,r.section,r.field_name,q.value),"Forecast quantity updated for this opportunity. Related service volumes may also change.");}catch(e){notice(e.message);render()}}); 
@@ -31,7 +31,7 @@ function lineView(r){
  wrapper.append(buttons);return wrapper;
 }
 function render(){
- $("mode").textContent=mode==="demo"?"LOCAL DEMO · NO SERVER":"SECURE EDITOR · DRAFT";
+ $("mode").textContent=mode==="demo"?"LOCAL DEMO · NO SERVER":quote?.status==="finalized"?"FINALIZED · LOCKED":"SECURE EDITOR · DRAFT";
  $("title").textContent=quote?.hwk_id||"SECURE RATE CARD";
  $("revision").textContent=quote?"Revision "+rev+" · "+changes.length+" unsaved change(s)":"Open from your quote email";
  $("timeInfo").textContent=quote?"Generated "+stamp(quote.generated_at||quote.baseline_payload?.generated_at||quote.baseline_payload?.section_1_static?.generated_at)+" · "+(quote.finalized_at?"Finalized "+stamp(quote.finalized_at):"Draft"):"";
