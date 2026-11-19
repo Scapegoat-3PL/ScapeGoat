@@ -7,7 +7,7 @@ const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-U
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const apiOrigin=location.origin; // Cloudflare Worker routes /api/* on this same preview origin
-let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="",savedFinalHtml=null,deliveryEnabled=false,verifiedRecipients=null;
+let quote=null,rev=null,changes=[],busy=false,mode="locked",quoteId="",token="",savedFinalHtml=null,deliveryEnabled=false,verifiedRecipients=null,deliveryReasons=null;
 const stamp=when=>when?new Intl.DateTimeFormat("en-US",{year:"numeric",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:"America/Los_Angeles",timeZoneName:"short"}).format(new Date(when)):"Not recorded";
 function notice(t,good=false){$("notice").textContent=t;$("notice").className="notice"+(good?" good":"")}
 function staged(op,next,msg){quote=next;changes.push(op);notice(msg);render()}
@@ -74,7 +74,7 @@ async function api(path,method="GET",body=null){
 }
 async function load(){
  if(mode!=="live")return;busy=true;render();notice("Loading secure quote...");
- try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;deliveryEnabled=result.delivery_enabled===true;verifiedRecipients=result.delivery_recipients||null;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
+ try{const result=await api("/api/quotes/"+encodeURIComponent(quoteId));quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;deliveryEnabled=result.delivery_enabled===true;verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;changes=[];notice("Quote loaded. All edits are limited to this opportunity.",true)}
  catch(e){quote=null;notice("Unable to load: "+e.message)}
  busy=false;render();
  if(query.get("intent")==="finalize"&&quote?.status==="draft"&&pricingIssues(quote).length===0){$("publish").click()}
@@ -214,7 +214,7 @@ $("deliveryMethod").addEventListener("change",()=>{
  const emailPossible=deliveryEnabled&&quote?.status==="finalized"&&mode==="live"&&Boolean(candidate);
  $("deliveryWarning").textContent=destination==="presentation"
  ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
- : emailPossible?"Aria will email this finalized revision to the recipient recorded in Scapegoat. The delivery request is audited.":"Email requires a finalized quote and a customer/warehouse address matched to this opportunity in Scapegoat.";
+ : emailPossible?"Aria will email this finalized revision to the recipient recorded in Scapegoat. The delivery request is audited.":(deliveryReasons?.[destination]||"Email requires a finalized quote and a customer/warehouse address matched to this opportunity in Scapegoat.");
  $("confirmFinalize").textContent=destination==="presentation"
  ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
  : "Send Final Rate Card";
@@ -243,7 +243,7 @@ $("confirmFinalize").addEventListener("click",async()=>{
  busy=true;render();
  try{
   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
-  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;verifiedRecipients=result.delivery_recipients||null;deliveryEnabled=result.delivery_enabled===true;
+  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;deliveryEnabled=result.delivery_enabled===true;
   $("finalizeDialog").close();notice("Rate card finalized and timestamped. Presentation copy downloaded; no email sent.",true);
   exportPresentation(true);
  }catch(e){notice("Finalization was not completed: "+e.message)}
