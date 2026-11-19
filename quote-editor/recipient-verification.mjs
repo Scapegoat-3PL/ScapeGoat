@@ -45,3 +45,23 @@ export function resolveVerifiedRecipients({hwkId,warehouseId,warehouse,sourceRow
    }
  };
 }
+
+
+/**
+ * A link-holder may explicitly enter a different destination address.
+ * This is not independent email verification: it is a manual recipient choice
+ * by the authorized warehouse. Keep source-record ownership verification.
+ */
+export function resolveDeliveryDestination({channel,recipientEmail,recipientConfirmed,verifiedRecipients}){
+ if(!["customer","warehouse"].includes(channel))throw Error("Choose customer or warehouse delivery");
+ if(!verifiedRecipients?.verified)throw Error("The Hawk ID must belong to the selected warehouse");
+ if(recipientConfirmed!==true)throw Error("Confirm the recipient address before sending");
+ const selected=String(recipientEmail??"").trim();
+ if(selected.length<5||selected.length>254||/[<>,;\r\n]/.test(selected))
+   throw Error("Enter one valid recipient email address");
+ const email=canonicalEmail(selected);
+ if(!email||email.length>254)throw Error("Enter one valid recipient email address");
+ const current=canonicalEmail(verifiedRecipients[channel]);
+ const recipientSource=current===email?"source_record":"manually_entered";
+ return {email,recipientSource};
+}
