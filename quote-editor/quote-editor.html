@@ -45,7 +45,7 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
 <form id="rppForm" class="row"><label><span>Target $ / PEQ</span><input id="target" class="rpp-input" required min=".01" step=".01" type="number"></label><button type="submit">Recalculate Target RPP</button></form></div></div>
 <div class="metrics"><div class="metric"><div class="metric-label">Projected RPP ($/PEQ)</div><div class="metric-value" id="achieved">—</div></div><div class="metric"><div class="metric-label">Modeled Monthly Revenue</div><div class="metric-value" id="monthly">—</div></div><div class="metric"><div class="metric-label">One-time charges</div><div class="metric-value" id="oneTime">—</div></div></div>
 <div class="panel"><div id="sections"></div><div class="row spread"><span class="sub" id="forecast"></span><div class="row"><button id="save" class="orange" disabled>Save revised draft</button><button id="publish" class="orange" disabled>Finalize Rate Card</button></div></div>
-<div class="warning"><strong>Development gate:</strong> Finalizing locks a dated quote revision. Choose download/screenshare, send to warehouse, or send to the verified customer through Aria. N3 recalculates Target RPP; if a target cannot be achieved, finalization is blocked. You must confirm any delivery.</div></div>
+<div class="warning"><strong>Development gate:</strong> Finalizing locks a dated quote revision. Enter any valid email to finalize and send via Aria from a private quote link. In this public demo you can prepare an addressed email draft. N3 recalculates Target RPP, and every send requires confirmation.</div></div>
 <dialog id="addDialog"><h2>Add custom charge</h2><form id="addForm"><div class="form-grid">
 <label class="wide"><span>Service description</span><input id="name" maxlength="150" required placeholder="Custom inspection"></label>
 <label><span>Category</span><select id="category"><option value="inbound">Inbound</option><option value="storage">Storage</option><option value="outbound">Outbound</option><option value="misc" selected>Miscellaneous / VAS</option></select></label>
@@ -71,7 +71,7 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
   </select></label>
   <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient email (editable)</span><input id="recipient" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@company.com" aria-describedby="deliveryWarning"></label>
  </div>
- <div class="warning" id="deliveryWarning">Emails use Scapegoat-verified opportunity recipients and are sent by Aria only after you confirm delivery.</div>
+ <div class="warning" id="deliveryWarning">Enter any valid email. An Aria delivery from a private quote link requires your confirmation and is recorded. The public demo downloads an email draft instead.</div>
  <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="openPresentation" class="alt" hidden>Open for Screen Share</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Download</button></div>
  </dialog>
  <script type="module" src="./quote-editor.js"></script>
