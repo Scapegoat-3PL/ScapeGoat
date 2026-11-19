@@ -154,7 +154,7 @@ test("manual email entry is honored only after confirmation and actual Hawk ID o
  assert.equal(outbox.find(x=>x.quote_id===created.quote_id&&x.channel==="warehouse").recipient_source,"source_record");
 });
 
-test("unassociated Hawk ID cannot use manual address as an email relay",async()=>{
+test("quote-specific bearer token permits one confirmed arbitrary recipient without a CRM match",async()=>{
  const modeled={...initial,section_2_inbound:{},section_3_storage:{Storage_Qty:100},section_4_outbound:{},section_5_misc:{}};
  const createdResponse=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-NOT-ASSIGNED",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
  assert.equal(createdResponse.status,201);
@@ -162,5 +162,14 @@ test("unassociated Hawk ID cannot use manual address as an email relay",async()=
  const finalized=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:1,delivery_method:"presentation"},authorization),{...env,ENABLE_FINALIZATION:"true"});
  assert.equal(finalized.status,200);
  const attempted=await worker.fetch(request("/api/quotes/"+created.quote_id+"/deliver","POST",{expected_revision:2,channel:"customer",recipient_email:"outside@example.com",recipient_confirmed:true},authorization),{...env,ENABLE_EMAIL_DELIVERY:"true"});
- assert.equal(attempted.status,422);
+ assert.equal(attempted.status,202);
+ const payload=await attempted.json();
+ assert.equal(payload.delivery_status,"pending");
+ const delivery=outbox.find(x=>x.quote_id===created.quote_id&&x.channel==="customer");
+ assert.equal(delivery.recipient_email,"outside@example.com");
+ assert.equal(delivery.recipient_source,"manually_entered");
+ const unknownToken=await worker.fetch(request("/api/quotes/"+created.quote_id+"/deliver","POST",
+ {expected_revision:2,channel:"warehouse",recipient_email:"another@example.com",recipient_confirmed:true},
+ {authorization:"Bearer wrong"}),{...env,ENABLE_EMAIL_DELIVERY:"true"});
+ assert.equal(unknownToken.status,401);
 });
