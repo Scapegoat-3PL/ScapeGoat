@@ -212,8 +212,9 @@ function updateRecipientDelivery(methodChanged=false){
  $("recipientName").textContent=destination==="customer"?"Customer email — you can edit this":"Warehouse email — you can edit this";
  if(methodChanged)$("recipient").value=defaultEmail;
  const requested=$("recipient").value.trim();
- const demoEmailDraft=mode==="demo"&&quote?.status==="finalized";
- const emailPossible=(deliveryEnabled&&quote?.status==="finalized"&&mode==="live"||demoEmailDraft)&&emailIsValid(requested);
+ const canFinalizeOrSend=quote&&(quote.status==="draft"||quote.status==="finalized")&&pricingIssues(quote).length===0;
+ const demoEmailDraft=mode==="demo"&&canFinalizeOrSend;
+ const emailPossible=(deliveryEnabled&&mode==="live"&&canFinalizeOrSend||demoEmailDraft)&&emailIsValid(requested);
  $("deliveryWarning").textContent=destination==="presentation"
   ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
   : mode==="demo"
@@ -229,7 +230,9 @@ function updateRecipientDelivery(methodChanged=false){
         : "Manually entered address: not independently verified by Scapegoat. Review it carefully; Aria will send only after your confirmation.";
  $("confirmFinalize").textContent=destination==="presentation"
   ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
-  : mode==="demo"?"Download Addressed Email Draft":"Send Final Rate Card";
+  : mode==="demo"
+    ? (quote?.status==="draft"?"Finalize & Prepare Email Draft":"Download Addressed Email Draft")
+    : quote?.status==="draft"?"Finalize & Send Rate Card":"Send Final Rate Card";
  $("confirmFinalize").disabled=destination!=="presentation"&&!emailPossible;
 }
 $("deliveryMethod").addEventListener("change",()=>updateRecipientDelivery(true));
@@ -248,45 +251,56 @@ function downloadDemoEmailDraft(to){
 $("confirmFinalize").addEventListener("click",async()=>{
  if(!quote||busy)return;
  const method=$("deliveryMethod").value;
- if(quote.status==="finalized"){
-  if(method==="presentation"){$("finalizeDialog").close();exportPresentation(true);return;}
-  if(mode==="demo"){
-   const recipientEmail=$("recipient").value.trim();
-   if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);return}
-   if(!window.confirm("Prepare the full N5 rate-card email draft addressed to "+recipientEmail+"?\nNo email will be sent automatically."))return;
-   downloadDemoEmailDraft(recipientEmail);
-   $("finalizeDialog").close();
-   notice("Addressed email draft downloaded. Open the .eml file in your email app to send; Aria is only available from a private saved quote.",true);
-   return;
-  }
-  if(mode!=="live"||!deliveryEnabled)return;
-  const recipientEmail=$("recipient").value.trim();
-  if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);notice("Enter one valid recipient email address.");return}
-  const saved=verifiedRecipients?.[method]||null;
-  const sourceLabel=saved?.toLowerCase()===recipientEmail.toLowerCase()?"stored in Scapegoat":"manually entered (not independently verified)";
-  if(!window.confirm("Send the FINALIZED rate card for "+quote.hwk_id+
-     " to "+recipientEmail+"?\n\nRecipient: "+sourceLabel+
-     "\nThis sends an email via Aria. Confirm the address is correct before proceeding."))return;
-  busy=true;render();
-  try{
-   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/deliver","POST",{expected_revision:rev,channel:method,recipient_email:recipientEmail,recipient_confirmed:true});
-   $("finalizeDialog").close();notice("Delivery "+result.delivery_id+" queued for Aria. The email is not confirmed sent until its Gmail message ID is recorded.",true);
-  }catch(e){notice("Email was not sent: "+e.message)}
-  busy=false;render();return;
+ if(method==="presentation"){
+   if(quote.status==="finalized"){$("finalizeDialog").close();exportPresentation(true);return}
+   if(mode==="demo"){
+     quote.status="finalized";quote.finalized_at=new Date().toISOString();
+     $("finalizeDialog").close();render();exportPresentation(true);
+     notice("Demo quote finalized locally. Presentation downloaded; no email sent.",true);return;
+   }
+   if(mode!=="live")return;
+   busy=true;render();
+   try{
+     const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
+     quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;
+     verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;
+     deliveryEnabled=result.delivery_enabled===true;
+     $("finalizeDialog").close();exportPresentation(true);
+     notice("Finalized revision "+rev+" at "+stamp(quote.finalized_at)+". Presentation downloaded; no email sent.",true);
+   }catch(e){notice("Finalization failed: "+e.message)}
+   busy=false;render();return;
  }
- if(method!=="presentation")return; // A quote must be finalized before emailing.
+ if(method!=="customer"&&method!=="warehouse")return;
+ const recipientEmail=$("recipient").value.trim();
+ if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);notice("Enter one valid recipient email address.");return}
+ const saved=verifiedRecipients?.[method]||null;
+ const sourceLabel=saved?.toLowerCase()===recipientEmail.toLowerCase()?"saved Scapegoat suggestion":"manually entered";
+ const action=quote.status==="draft"?"FINALIZE this rate card and request Aria delivery":"request Aria delivery of this finalized rate card";
+ if(!window.confirm((mode==="demo"?"Prepare an email draft for":"Are you sure you want to "+action+" to")+" "+recipientEmail+
+    "?\n\nRecipient: "+sourceLabel+
+    (mode==="demo"?"\nNo email is sent automatically from the public demo.":"\nAria will send the finalized N5 quote once queued.")))return;
  if(mode==="demo"){
-  quote.status="finalized";quote.finalized_at=new Date().toISOString();
-  $("finalizeDialog").close();notice("Demo quote finalized at "+stamp(quote.finalized_at)+". Downloading a presentation copy; no email sent.",true);
-  render();exportPresentation(true);return;
+   if(quote.status==="draft"){quote.status="finalized";quote.finalized_at=new Date().toISOString();}
+   downloadDemoEmailDraft(recipientEmail);$("finalizeDialog").close();render();
+   notice("Addressed N5 email draft downloaded. Open the .eml file in your email app to send. No Aria email was sent.",true);
+   return;
  }
+ if(mode!=="live"||!deliveryEnabled)return;
  busy=true;render();
  try{
-  const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
-  quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;deliveryEnabled=result.delivery_enabled===true;
-  $("finalizeDialog").close();notice("Rate card finalized and timestamped. Presentation copy downloaded; no email sent.",true);
-  exportPresentation(true);
- }catch(e){notice("Finalization was not completed: "+e.message)}
+   if(quote.status==="draft"){
+     const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/finalize","POST",{expected_revision:rev,delivery_method:"presentation"});
+     quote=result.draft;rev=result.revision;savedFinalHtml=result.final_html||null;
+     verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;
+     deliveryEnabled=result.delivery_enabled===true;
+   }
+   const sent=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/deliver","POST",
+     {expected_revision:rev,channel:method,recipient_email:recipientEmail,recipient_confirmed:true});
+   $("finalizeDialog").close();
+   notice("Finalized quote revision "+rev+" queued to "+recipientEmail+" via Aria (delivery ID "+sent.delivery_id+"). Sent status requires Gmail confirmation.",true);
+ }catch(e){
+   notice("Delivery not completed: "+e.message+(quote?.status==="finalized"?" The rate card is finalized; you may reopen the dialog to retry a permitted delivery.":""));
+ }
  busy=false;render();
 });
 
