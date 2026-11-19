@@ -212,29 +212,53 @@ function updateRecipientDelivery(methodChanged=false){
  $("recipientName").textContent=destination==="customer"?"Customer email — you can edit this":"Warehouse email — you can edit this";
  if(methodChanged)$("recipient").value=defaultEmail;
  const requested=$("recipient").value.trim();
- const emailPossible=deliveryEnabled&&quote?.status==="finalized"&&mode==="live"&&emailIsValid(requested);
+ const demoEmailDraft=mode==="demo"&&quote?.status==="finalized";
+ const emailPossible=(deliveryEnabled&&quote?.status==="finalized"&&mode==="live"||demoEmailDraft)&&emailIsValid(requested);
  $("deliveryWarning").textContent=destination==="presentation"
   ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
-  : !deliveryEnabled
-    ? (deliveryReasons?.[destination]||"A real Hawk ID and warehouse assignment are required before Aria can deliver this rate card.")
-    : !emailIsValid(requested)
+  : mode==="demo"
+    ? (emailIsValid(requested)
+      ? "Public demo: downloads an email draft with the full rate card addressed to your recipient. Open it in your email app to send; Aria sending requires a private saved quote link."
+      : "Public demo: enter any valid email to prepare a ready-to-send rate card email draft. Aria sends only from private quote links.")
+    : !deliveryEnabled
+      ? "Aria delivery is not currently enabled for this quote."
+      : !emailIsValid(requested)
       ? "Enter one valid email address to continue. The warehouse is responsible for checking the intended recipient."
       : defaultEmail&&requested.toLowerCase()===defaultEmail.toLowerCase()
         ? "This is the address stored in Scapegoat. You'll confirm the recipient before Aria sends."
         : "Manually entered address: not independently verified by Scapegoat. Review it carefully; Aria will send only after your confirmation.";
  $("confirmFinalize").textContent=destination==="presentation"
   ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
-  : "Send Final Rate Card";
+  : mode==="demo"?"Download Addressed Email Draft":"Send Final Rate Card";
  $("confirmFinalize").disabled=destination!=="presentation"&&!emailPossible;
 }
 $("deliveryMethod").addEventListener("change",()=>updateRecipientDelivery(true));
 $("recipient").addEventListener("input",()=>updateRecipientDelivery(false));
 $("openPresentation").addEventListener("click",()=>{if(quote?.status==="finalized")exportPresentation(false)});
+function downloadDemoEmailDraft(to){
+ const html=finalizedPresentationHtml();
+ const subject="Finalized Warehouse Rate Card - "+String(quote.hwk_id||"HWK-DEMO");
+ const emailMessage=["To: "+to,"Subject: "+subject,"MIME-Version: 1.0","Content-Type: text/html; charset=UTF-8","Content-Transfer-Encoding: 8bit","",html].join("\r\n");
+ const blob=new Blob([emailMessage],{type:"message/rfc822"});
+ const href=URL.createObjectURL(blob);
+ const a=document.createElement("a");a.href=href;
+ a.download="Scapegoat-Rate-Card-Email-"+String(quote.hwk_id||"DEMO").replace(/[^a-z0-9-]/gi,"-")+".eml";
+ a.click();setTimeout(()=>URL.revokeObjectURL(href),30000);
+}
 $("confirmFinalize").addEventListener("click",async()=>{
  if(!quote||busy)return;
  const method=$("deliveryMethod").value;
  if(quote.status==="finalized"){
   if(method==="presentation"){$("finalizeDialog").close();exportPresentation(true);return;}
+  if(mode==="demo"){
+   const recipientEmail=$("recipient").value.trim();
+   if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);return}
+   if(!window.confirm("Prepare the full N5 rate-card email draft addressed to "+recipientEmail+"?\nNo email will be sent automatically."))return;
+   downloadDemoEmailDraft(recipientEmail);
+   $("finalizeDialog").close();
+   notice("Addressed email draft downloaded. Open the .eml file in your email app to send; Aria is only available from a private saved quote.",true);
+   return;
+  }
   if(mode!=="live"||!deliveryEnabled)return;
   const recipientEmail=$("recipient").value.trim();
   if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);notice("Enter one valid recipient email address.");return}
