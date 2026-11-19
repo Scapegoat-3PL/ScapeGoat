@@ -7,13 +7,23 @@ const apiUrl="https://quote-editor-test.workers.dev";
 const env={SUPABASE_URL:"https://test.supabase.co",SUPABASE_SERVICE_ROLE_KEY:"test-service-secret",INTERNAL_API_KEY:"test-internal-key",EDITOR_ORIGIN:origin};
 const warehouseId="11111111-1111-4111-8111-111111111111";
 const initial={section_1_static:{Warehouse_rpp:50,storage_pallet_equivalent:100},section_2_inbound_rows:[{field_name:"inbound_container_min",cost:850,forecast_quantity:2}],section_3_storage_rows:[{field_name:"storage_pallet_base",cost:20,forecast_quantity:100}],section_4_outbound_rows:[{field_name:"b2b_pallet_out",cost:13,forecast_quantity:100}],section_5_misc_rows:[]};
-const quotes=new Map(),links=[];
+const quotes=new Map(),links=[],outbox=[];
 const originalFetch=globalThis.fetch;
 globalThis.fetch=async(rawUrl,options={})=>{
  const url=new URL(rawUrl),table=url.pathname.split("/").pop();
  if(url.hostname!=="test.supabase.co"||options.headers.apikey!==env.SUPABASE_SERVICE_ROLE_KEY)throw Error("Unexpected outbound API");
  const method=options.method||"GET",body=options.body?JSON.parse(options.body):null;
- if(table==="warehouses"&&method==="GET")return Response.json(url.searchParams.get("warehouse_id")==="eq."+warehouseId?[{warehouse_id:warehouseId}]:[]);
+ if(table==="warehouses"&&method==="GET")return Response.json(url.searchParams.get("warehouse_id")==="eq."+warehouseId?[{warehouse_id:warehouseId,warehouse_email:"warehouse@example.com",warehouse_name:"Example Warehouse"}]:[]);
+ if(table==="VacancyChain"&&method==="GET")return Response.json(url.searchParams.get("lead_id")==="eq.HWK-FINAL"?[{lead_id:"HWK-FINAL",warehouse_id:warehouseId,lead_email:"buyer@example.com",email:"buyer@example.com"}]:[]);
+ if(table==="Hawkish"&&method==="GET")return Response.json([]);
+ if(table==="sg_opportunity_rate_quote_deliveries"){
+  if(method==="POST"){
+   if(outbox.some(d=>d.quote_id===body.quote_id&&d.revision===body.revision&&d.channel===body.channel))return Response.json([]);
+   const delivery={...body,delivery_id:body.delivery_id||crypto.randomUUID()};
+   outbox.push(delivery);return Response.json([delivery]);
+  }
+  if(method==="GET")return Response.json(outbox.filter(d=>d.quote_id===url.searchParams.get("quote_id")?.replace("eq.","")));
+ }
  if(table==="sg_opportunity_rate_quotes"){
   if(method==="POST"){quotes.set(body.quote_id,{...body,updated_at:new Date().toISOString()});return new Response(null,{status:201})}
   const id=url.searchParams.get("quote_id")?.replace("eq.","");
@@ -102,4 +112,55 @@ test("legacy target-RPP PATCH recalculates through N3 instead of stranding final
  assert.equal(repriced.draft.reprice_result.engine,"frozen_n3_n4_n5");
  const finalized=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),{...env,ENABLE_FINALIZATION:"true"});
  assert.equal(finalized.status,200);
+});
+
+
+test("manual email entry is honored only after confirmation and actual Hawk ID ownership, without sending an email",async()=>{
+ const modeled={...initial,
+  section_1_static:{...initial.section_1_static,Hwk_Id:"HWK-FINAL",selected_warehouse_name:"Example Warehouse"},
+  section_2_inbound:{inbound_type:"Floor-loaded",has_pallet_in:false,has_container_unload:true,container_avg_inbound_qty_per_month:2,container_avg_qty_per_inbound:500,Master_Carton_In:0.68,inbound_container_min:850},
+  section_3_storage:{Storage_Qty:100,storage_pallet_equivalent:100,storage_pallet_base:20},
+  section_4_outbound:{DTC:{dtc_vol:0},B2B:{retail_vol:0},PalletOut:{pallet_vol:10,pallets_per_order:10,b2b_pallet_out:13,bol_fee:8}},
+  section_5_misc:{monthly_minimum:1000},
+  section_2_inbound_rows:[{field_name:"master_carton_in",cost:0.68},{field_name:"inbound_container_min",cost:850}],
+  section_4_outbound_rows:[{field_name:"b2b_pallet_out",cost:13},{field_name:"bol_fee",cost:8}]
+ };
+ const createdResponse=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-FINAL",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
+ assert.equal(createdResponse.status,201);
+ const created=await createdResponse.json(),authorization={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
+ let response=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:1,delivery_method:"presentation"},authorization),{...env,ENABLE_FINALIZATION:"true"});
+ assert.equal(response.status,200);
+ const enabled={...env,ENABLE_FINALIZATION:"true",ENABLE_EMAIL_DELIVERY:"true"};
+ response=await worker.fetch(request("/api/quotes/"+created.quote_id,"GET",null,authorization),enabled);
+ assert.equal(response.status,200);
+ const quote=await response.json();
+ assert.equal(quote.delivery_enabled,true);
+ assert.equal(quote.delivery_recipients.customer,"buyer@example.com");
+ const route="/api/quotes/"+created.quote_id+"/deliver";
+ const invalid=await worker.fetch(request(route,"POST",{expected_revision:2,channel:"customer",recipient_email:"wrong",recipient_confirmed:true},authorization),enabled);
+ assert.equal(invalid.status,422);
+ const notConfirmed=await worker.fetch(request(route,"POST",{expected_revision:2,channel:"customer",recipient_email:"contact@another-brand.com",recipient_confirmed:false},authorization),enabled);
+ assert.equal(notConfirmed.status,422);
+ const chosen=await worker.fetch(request(route,"POST",{expected_revision:2,channel:"customer",recipient_email:"contact@another-brand.com",recipient_confirmed:true},authorization),enabled);
+ assert.equal(chosen.status,202);
+ const queued=outbox.find(x=>x.quote_id===created.quote_id&&x.channel==="customer");
+ assert.equal(queued.recipient_email,"contact@another-brand.com");
+ assert.equal(queued.recipient_source,"manually_entered");
+ assert.ok(queued.recipient_confirmed_at);
+ const duplicate=await worker.fetch(request(route,"POST",{expected_revision:2,channel:"customer",recipient_email:"second@another-brand.com",recipient_confirmed:true},authorization),enabled);
+ assert.equal(duplicate.status,409);
+ const warehouse=await worker.fetch(request(route,"POST",{expected_revision:2,channel:"warehouse",recipient_email:"warehouse@example.com",recipient_confirmed:true},authorization),enabled);
+ assert.equal(warehouse.status,202);
+ assert.equal(outbox.find(x=>x.quote_id===created.quote_id&&x.channel==="warehouse").recipient_source,"source_record");
+});
+
+test("unassociated Hawk ID cannot use manual address as an email relay",async()=>{
+ const modeled={...initial,section_2_inbound:{},section_3_storage:{Storage_Qty:100},section_4_outbound:{},section_5_misc:{}};
+ const createdResponse=await worker.fetch(request("/api/internal/quotes","POST",{hwk_id:"HWK-NOT-ASSIGNED",warehouse_id:warehouseId,baseline_payload:modeled},{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
+ assert.equal(createdResponse.status,201);
+ const created=await createdResponse.json(),authorization={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
+ const finalized=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:1,delivery_method:"presentation"},authorization),{...env,ENABLE_FINALIZATION:"true"});
+ assert.equal(finalized.status,200);
+ const attempted=await worker.fetch(request("/api/quotes/"+created.quote_id+"/deliver","POST",{expected_revision:2,channel:"customer",recipient_email:"outside@example.com",recipient_confirmed:true},authorization),{...env,ENABLE_EMAIL_DELIVERY:"true"});
+ assert.equal(attempted.status,422);
 });
