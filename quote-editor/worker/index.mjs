@@ -8,6 +8,7 @@
 import {newDraft,operations,pricingIssues,SECTIONS} from "../quote-editor-core.mjs";
 import {renderQuoteDocument} from "../quote-release.mjs";
 import {repriceQuote} from "../n3-reprice.mjs";
+import {resolveVerifiedRecipients} from "../recipient-verification.mjs";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const enc=new TextEncoder();
 const sha=async x=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(x))),b=>b.toString(16).padStart(2,"0")).join("");
@@ -31,27 +32,21 @@ async function authorization(env,id,req){
  if(!found||found.quote_id!==id||found.revoked_at||Date.parse(found.expires_at)<=Date.now())return null;
  return found;
 }
-const emailFormat=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-function emailValue(s){const v=String(s||"").trim().toLowerCase();return emailFormat.test(v)?v:null}
 async function trustedRecipients(env,hwkId,warehouseId){
- // Independently cross-check lead-to-warehouse ownership at SEND time.
- const wh=await db(env,"GET","warehouses","select=warehouse_id,warehouse_email,warehouse_name&warehouse_id=eq."+encodeURIComponent(warehouseId)+"&limit=1");
- const warehouse=wh?.[0];if(!warehouse)return null;
- let customer=null;
+ // Never authorize either channel without an exact source lead assignment.
+ // An existing warehouse email alone is not sufficient.
+ const warehouses=await db(env,"GET","warehouses",
+   "select=warehouse_id,warehouse_email,warehouse_name&warehouse_id=eq."+encodeURIComponent(warehouseId)+"&limit=1");
+ const rows=[];
  for(const table of ["VacancyChain","Hawkish"]){
-  const matches=await db(env,"GET",table,
-   "select=lead_id,warehouse_id,lead_email,email,selected_warehouse_name&lead_id=eq."+encodeURIComponent(hwkId)+"&limit=15");
-  for(const row of matches||[]){
-   if(String(row.warehouse_id||"").toLowerCase()!==String(warehouseId).toLowerCase())continue;
-   const parsed=emailValue(row.lead_email)||emailValue(row.email);
-   if(parsed){if(customer&&customer!==parsed)return null;customer=parsed;}
-  }
+   const matches=await db(env,"GET",table,
+     "select=lead_id,warehouse_id,lead_email,email&lead_id=eq."+encodeURIComponent(hwkId)+"&limit=30");
+   rows.push(...(matches||[]));
  }
- const warehouseEmail=emailValue(warehouse.warehouse_email);
- if(!warehouseEmail&&!customer)return null;
- return {verified:Boolean(warehouseEmail||customer),customer,warehouse:warehouseEmail};
+ return resolveVerifiedRecipients({
+   hwkId,warehouseId,warehouse:warehouses?.[0]||null,sourceRows:rows
+ });
 }
-
 function checkBaseline(payload){
  if(!payload||typeof payload!=="object"||Array.isArray(payload)||!payload.section_1_static)throw Error("Missing quote sections");
  for(const s of SECTIONS)if(!Array.isArray(payload[s]))throw Error("Missing "+s);
@@ -87,7 +82,7 @@ export default {async fetch(req,env){
   const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
   const recipientStatus=env.ENABLE_EMAIL_DELIVERY==="true"?await trustedRecipients(env,stored.hwk_id,stored.warehouse_id):null;
-  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&recipientStatus?.verified===true,delivery_recipients:recipientStatus?.verified===true?recipientStatus:null,...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&recipientStatus?.verified===true,delivery_recipients:recipientStatus?.verified===true?recipientStatus:null,delivery_reasons:recipientStatus?.reasons||null,...(q.status==="finalized"?{final_html:q.final_html}:{})});
   if(match[2]==="/reprice"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
    if(stored.status!=="draft")return json({error:"Only drafts may be repriced"},409,allowed);
