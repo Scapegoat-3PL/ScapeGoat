@@ -204,22 +204,31 @@ $("publish").addEventListener("click",()=>{
  $("finalizeDialog").showModal();
 });
 $("cancelFinalize").addEventListener("click",()=>$("finalizeDialog").close());
-$("deliveryMethod").addEventListener("change",()=>{
+const emailIsValid=value=>/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(String(value||"").trim())&&String(value||"").trim().length<=254;
+function updateRecipientDelivery(methodChanged=false){
  const destination=$("deliveryMethod").value;
- const allowed=verifiedRecipients;
- const candidate=allowed?.verified===true&&destination!=="presentation"?allowed[destination]:null;
+ const defaultEmail=verifiedRecipients?.verified===true?verifiedRecipients[destination]||"":"";
  $("recipientLabel").hidden=destination==="presentation";
- $("recipientName").textContent=destination==="customer"?"Verified customer email":"Verified warehouse email";
- $("recipient").value=candidate||"";
- const emailPossible=deliveryEnabled&&quote?.status==="finalized"&&mode==="live"&&Boolean(candidate);
+ $("recipientName").textContent=destination==="customer"?"Customer email — you can edit this":"Warehouse email — you can edit this";
+ if(methodChanged)$("recipient").value=defaultEmail;
+ const requested=$("recipient").value.trim();
+ const emailPossible=deliveryEnabled&&quote?.status==="finalized"&&mode==="live"&&emailIsValid(requested);
  $("deliveryWarning").textContent=destination==="presentation"
- ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
- : emailPossible?"Aria will email this finalized revision to the recipient recorded in Scapegoat. The delivery request is audited.":(deliveryReasons?.[destination]||"Email requires a finalized quote and a customer/warehouse address matched to this opportunity in Scapegoat.");
+  ? (quote?.status==="finalized"?"This locked revision can be downloaded or presented on screen share.":"Finalization will lock the revision and download its presentation copy.")
+  : !deliveryEnabled
+    ? (deliveryReasons?.[destination]||"A real Hawk ID and warehouse assignment are required before Aria can deliver this rate card.")
+    : !emailIsValid(requested)
+      ? "Enter one valid email address to continue. The warehouse is responsible for checking the intended recipient."
+      : defaultEmail&&requested.toLowerCase()===defaultEmail.toLowerCase()
+        ? "This is the address stored in Scapegoat. You'll confirm the recipient before Aria sends."
+        : "Manually entered address: not independently verified by Scapegoat. Review it carefully; Aria will send only after your confirmation.";
  $("confirmFinalize").textContent=destination==="presentation"
- ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
- : "Send Final Rate Card";
+  ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
+  : "Send Final Rate Card";
  $("confirmFinalize").disabled=destination!=="presentation"&&!emailPossible;
-});
+}
+$("deliveryMethod").addEventListener("change",()=>updateRecipientDelivery(true));
+$("recipient").addEventListener("input",()=>updateRecipientDelivery(false));
 $("openPresentation").addEventListener("click",()=>{if(quote?.status==="finalized")exportPresentation(false)});
 $("confirmFinalize").addEventListener("click",async()=>{
  if(!quote||busy)return;
@@ -227,9 +236,16 @@ $("confirmFinalize").addEventListener("click",async()=>{
  if(quote.status==="finalized"){
   if(method==="presentation"){$("finalizeDialog").close();exportPresentation(true);return;}
   if(mode!=="live"||!deliveryEnabled)return;
+  const recipientEmail=$("recipient").value.trim();
+  if(!emailIsValid(recipientEmail)){updateRecipientDelivery(false);notice("Enter one valid recipient email address.");return}
+  const saved=verifiedRecipients?.[method]||null;
+  const sourceLabel=saved?.toLowerCase()===recipientEmail.toLowerCase()?"stored in Scapegoat":"manually entered (not independently verified)";
+  if(!window.confirm("Send the FINALIZED rate card for "+quote.hwk_id+
+     " to "+recipientEmail+"?\n\nRecipient: "+sourceLabel+
+     "\nThis sends an email via Aria. Confirm the address is correct before proceeding."))return;
   busy=true;render();
   try{
-   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/deliver","POST",{expected_revision:rev,channel:method});
+   const result=await api("/api/quotes/"+encodeURIComponent(quoteId)+"/deliver","POST",{expected_revision:rev,channel:method,recipient_email:recipientEmail,recipient_confirmed:true});
    $("finalizeDialog").close();notice("Delivery "+result.delivery_id+" queued for Aria. The email is not confirmed sent until its Gmail message ID is recorded.",true);
   }catch(e){notice("Email was not sent: "+e.message)}
   busy=false;render();return;
