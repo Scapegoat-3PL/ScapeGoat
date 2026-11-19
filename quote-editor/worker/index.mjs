@@ -81,8 +81,15 @@ export default {async fetch(req,env){
   const id=match[1],link=await authorization(env,id,req);if(!link)return json({error:"Invalid or expired edit link"},401,allowed);
   const quotes=await db(env,"GET","sg_opportunity_rate_quotes","select=quote_id,hwk_id,warehouse_id,revision,status,draft_payload,updated_at,created_at,finalized_at,final_html&quote_id=eq."+id+"&limit=1");
   const stored=quotes?.[0];if(!stored)return json({error:"Quote not found"},404,allowed);
-  const recipientStatus=env.ENABLE_EMAIL_DELIVERY==="true"?await trustedRecipients(env,stored.hwk_id,stored.warehouse_id):null;
-  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true"&&recipientStatus?.verified===true,delivery_recipients:recipientStatus?.verified===true?recipientStatus:null,delivery_reasons:recipientStatus?.reasons||null,...(q.status==="finalized"?{final_html:q.final_html}:{})});
+  // Warehouse and customer addresses are optional suggested defaults.
+  // The quote-scoped bearer token plus explicit manual email confirmation
+  // authorizes delivery; contact records must not prevent a chosen recipient.
+  let recipientStatus=null;
+  if(env.ENABLE_EMAIL_DELIVERY==="true"){
+   try{recipientStatus=await trustedRecipients(env,stored.hwk_id,stored.warehouse_id)}
+   catch(_err){recipientStatus=null}
+  }
+  const output=q=>({quote_id:q.quote_id,hwk_id:q.hwk_id,revision:q.revision,status:q.status,draft:q.draft_payload,created_at:q.created_at,updated_at:q.updated_at,finalized_at:q.finalized_at,delivery_enabled:env.ENABLE_EMAIL_DELIVERY==="true",delivery_recipients:recipientStatus?.verified===true?recipientStatus:null,delivery_reasons:null,...(q.status==="finalized"?{final_html:q.final_html}:{})});
   if(match[2]==="/reprice"){
    if(req.method!=="POST")return json({error:"Method not allowed"},405,allowed);
    if(stored.status!=="draft")return json({error:"Only drafts may be repriced"},409,allowed);
@@ -113,7 +120,9 @@ export default {async fetch(req,env){
    if(!["customer","warehouse"].includes(body.channel)||body.to||body.recipient)
     return json({error:"Select a verified customer or warehouse delivery channel"},422,allowed);
    if(body.expected_revision!==stored.revision)return json({error:"Revision conflict"},409,allowed);
-   const recipients=await trustedRecipients(env,stored.hwk_id,stored.warehouse_id);
+   // The verified CRM address is advisory. The bearer link is the
+   // authorization for this finalized rate-card revision.
+   const recipients=recipientStatus;
    let email,recipientSource;
    try{
      ({email,recipientSource}=resolveDeliveryDestination({
