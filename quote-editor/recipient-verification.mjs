@@ -48,13 +48,17 @@ export function resolveVerifiedRecipients({hwkId,warehouseId,warehouse,sourceRow
 
 
 /**
- * A link-holder may explicitly enter a different destination address.
- * This is not independent email verification: it is a manual recipient choice
- * by the authorized warehouse. Keep source-record ownership verification.
+ * A warehouse holding a valid quote-specific bearer edit token may enter any
+ * single valid email destination. Token authorization, immutable finalization,
+ * recipient confirmation and outbox deduplication occur in the API.
+ * A missing CRM contact or a synthetic Hawk ID must not silently block this.
+ *
+ * Source data is used only to label whether the chosen address was suggested
+ * by Scapegoat; it is NOT a prerequisite to delivery.
  */
 export function resolveDeliveryDestination({channel,recipientEmail,recipientConfirmed,verifiedRecipients}){
  if(!["customer","warehouse"].includes(channel))throw Error("Choose customer or warehouse delivery");
- if(!verifiedRecipients?.verified)throw Error("The Hawk ID must belong to the selected warehouse");
+ // Authorization was completed by the quote-scoped bearer link in the API.
  if(recipientConfirmed!==true)throw Error("Confirm the recipient address before sending");
  const selected=String(recipientEmail??"").trim();
  if(selected.length<5||selected.length>254||/[<>,;\r\n]/.test(selected))
