@@ -14,3 +14,17 @@ test("editing a destination enables a validated deliberate send, not a silent se
  assert.match(browser,/window\.confirm\(/);
  assert.match(browser,/recipient_email:recipientEmail,recipient_confirmed:true/);
 });
+
+test("finalize-and-send handles arbitrary addresses from secure quotes in one action",()=>{
+ assert.match(browser,/Finalize & Send Rate Card/);
+ assert.match(browser,/if\(quote\.status==="draft"\)/);
+ assert.match(browser,/await api\("\/api\/quotes\/"\+encodeURIComponent\(quoteId\)\+"\/finalize"/);
+ assert.match(browser,/await api\("\/api\/quotes\/"\+encodeURIComponent\(quoteId\)\+"\/deliver"/);
+ assert.match(browser,/recipient_email:recipientEmail,recipient_confirmed:true/);
+});
+test("public demonstration offers an addressed email draft instead of an unauthenticated mail relay",()=>{
+ assert.match(browser,/Download Addressed Email Draft/);
+ assert.match(browser,/function downloadDemoEmailDraft\(to\)/);
+ assert.match(browser,/message\/rfc822/);
+ assert.match(browser,/No Aria email was sent/);
+});
