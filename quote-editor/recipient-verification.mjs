@@ -65,7 +65,7 @@ export function resolveDeliveryDestination({channel,recipientEmail,recipientConf
    throw Error("Enter one valid recipient email address");
  const email=canonicalEmail(selected);
  if(!email||email.length>254)throw Error("Enter one valid recipient email address");
- const current=canonicalEmail(verifiedRecipients[channel]);
+ const current=canonicalEmail(verifiedRecipients?.[channel]);
  const recipientSource=current===email?"source_record":"manually_entered";
  return {email,recipientSource};
 }
