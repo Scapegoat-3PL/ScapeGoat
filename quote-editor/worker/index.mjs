@@ -8,7 +8,7 @@
 import {newDraft,operations,pricingIssues,SECTIONS} from "../quote-editor-core.mjs";
 import {renderQuoteDocument} from "../quote-release.mjs";
 import {repriceQuote} from "../n3-reprice.mjs";
-import {resolveVerifiedRecipients} from "../recipient-verification.mjs";
+import {resolveVerifiedRecipients,resolveDeliveryDestination} from "../recipient-verification.mjs";
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const enc=new TextEncoder();
 const sha=async x=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(x))),b=>b.toString(16).padStart(2,"0")).join("");
@@ -114,15 +114,22 @@ export default {async fetch(req,env){
     return json({error:"Select a verified customer or warehouse delivery channel"},422,allowed);
    if(body.expected_revision!==stored.revision)return json({error:"Revision conflict"},409,allowed);
    const recipients=await trustedRecipients(env,stored.hwk_id,stored.warehouse_id);
-   const email=recipients?.verified===true?recipients[body.channel]:null;
-   if(!email)return json({error:"No independently verified recipient for this opportunity/warehouse"},422,allowed);
+   let email,recipientSource;
+   try{
+     ({email,recipientSource}=resolveDeliveryDestination({
+       channel:body.channel,
+       recipientEmail:body.recipient_email,
+       recipientConfirmed:body.recipient_confirmed,
+       verifiedRecipients:recipients
+     }));
+   }catch(err){return json({error:err.message},422,allowed)}
    const deliveryId=crypto.randomUUID();
    let inserted;
    try{
     inserted=await db(env,"POST","sg_opportunity_rate_quote_deliveries",
      "on_conflict=quote_id,revision,channel&select=delivery_id,status,requested_at",
      {delivery_id:deliveryId,quote_id:id,revision:stored.revision,channel:body.channel,
-      recipient_email:email,status:"pending"},
+      recipient_email:email,recipient_source:recipientSource,recipient_confirmed_at:new Date().toISOString(),status:"pending"},
      "resolution=ignore-duplicates,return=representation");
    }catch(e){return json({error:"Could not queue delivery"},503,allowed)}
    if(!inserted?.length)
