@@ -88,3 +88,22 @@ jobs:
           else
             echo 'EDITOR_API_AUTH_CHECK=pending_deployment_or_configuration'
           fi
+
+      - name: Confirm deployed recipient email field is editable
+        shell: bash
+        run: |
+          set -eu
+          URL='https://scapegoatquoteeditor.sean-0a8.workers.dev/?demo=1'
+          for i in 1 2 3 4 5 6; do
+            curl -fsSL --max-time 15 "$URL" -o /tmp/sg-rate-card-page
+            curl -fsSL --max-time 15 'https://scapegoatquoteeditor.sean-0a8.workers.dev/quote-editor.js' -o /tmp/sg-rate-card-js
+            if grep -q 'id="recipient" type="email"' /tmp/sg-rate-card-page &&
+               ! grep -Eq 'id="recipient"[^>]+readonly' /tmp/sg-rate-card-page &&
+               grep -Fq 'recipient_email:recipientEmail,recipient_confirmed:true' /tmp/sg-rate-card-js; then
+              echo 'EDITOR_RECIPIENT_INPUT=editable'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::Cloudflare has not deployed the editable recipient field yet'
+          exit 1
