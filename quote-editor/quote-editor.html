@@ -69,7 +69,7 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
    <option value="customer">Email directly to customer via Aria</option>
    <option value="warehouse">Email to warehouse via Aria</option>
   </select></label>
-  <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient</span><input id="recipient" type="email" readonly></label>
+  <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient email (editable)</span><input id="recipient" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@company.com" aria-describedby="deliveryWarning"></label>
  </div>
  <div class="warning" id="deliveryWarning">Emails use Scapegoat-verified opportunity recipients and are sent by Aria only after you confirm delivery.</div>
  <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="openPresentation" class="alt" hidden>Open for Screen Share</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Download</button></div>
