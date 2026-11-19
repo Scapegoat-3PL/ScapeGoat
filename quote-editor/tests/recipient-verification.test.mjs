@@ -40,7 +40,7 @@ test("opportunity email in a different warehouse cannot authorize this warehouse
  assert.equal(actual.verified,false);
 });
 
-test("editable address is accepted after explicit warehouse confirmation and owner verification",()=>{
+test("editable address is accepted after explicit confirmation with a quote-scoped token",()=>{
  const verified=verify({hwkId:lead,warehouseId:wid,warehouse,sourceRows:paired});
  const custom=selectDestination({
   channel:"customer",recipientEmail:"NEW+Contact@OtherCo.com",recipientConfirmed:true,verifiedRecipients:verified
@@ -52,10 +52,14 @@ test("editable address is accepted after explicit warehouse confirmation and own
  });
  assert.equal(official.recipientSource,"source_record");
 });
-test("reject malformed email, missing confirmation, and unassociated quote",()=>{
+test("reject malformed email and missing confirmation, but accept email with no CRM match",()=>{
  const verified=verify({hwkId:lead,warehouseId:wid,warehouse,sourceRows:paired});
  assert.throws(()=>selectDestination({channel:"customer",recipientEmail:"a@b.com",recipientConfirmed:false,verifiedRecipients:verified}),/Confirm/);
  assert.throws(()=>selectDestination({channel:"customer",recipientEmail:"not-an-email",recipientConfirmed:true,verifiedRecipients:verified}),/valid recipient/);
  assert.throws(()=>selectDestination({channel:"warehouse",recipientEmail:"person@example.com,other@example.com",recipientConfirmed:true,verifiedRecipients:verified}),/valid recipient/);
- assert.throws(()=>selectDestination({channel:"customer",recipientEmail:"person@example.com",recipientConfirmed:true,verifiedRecipients:{verified:false}}),/must belong/);
+ const unmatched=selectDestination({channel:"customer",recipientEmail:"person@example.com",recipientConfirmed:true,verifiedRecipients:{verified:false}});
+ assert.equal(unmatched.email,"person@example.com");
+ assert.equal(unmatched.recipientSource,"manually_entered");
+ const noRecord=selectDestination({channel:"warehouse",recipientEmail:"test@example.org",recipientConfirmed:true,verifiedRecipients:null});
+ assert.equal(noRecord.email,"test@example.org");
 });
