@@ -107,3 +107,22 @@ jobs:
           done
           echo '::error::Cloudflare has not deployed the editable recipient field yet'
           exit 1
+
+      - name: Confirm public demo and secure finalized send behavior are distinct
+        shell: bash
+        run: |
+          set -eu
+          curl -fsSL --max-time 20 'https://scapegoatquoteeditor.sean-0a8.workers.dev/quote-editor.js' -o /tmp/sg-delivery-js
+          for expected in 'Finalize & Send Rate Card' 'downloadDemoEmailDraft' 'recipient_email:recipientEmail,recipient_confirmed:true'; do
+            if ! grep -Fq "$expected" /tmp/sg-delivery-js; then
+              echo "::error::Expected latest rate card delivery logic not deployed: $expected"
+              exit 1
+            fi
+          done
+          STATUS=$(curl -sSL --max-time 20 -o /tmp/sg-delivery-unauthorized -w '%{http_code}' 'https://scapegoatquoteeditor.sean-0a8.workers.dev/api/quotes/11111111-1111-4111-8111-111111111111/deliver' -X POST -H 'Content-Type: application/json' --data '{"channel":"warehouse","recipient_email":"test@example.com","recipient_confirmed":true,"expected_revision":2}' || true)
+          echo "UNAUTHENTICATED_DELIVERY_HTTP=$STATUS"
+          if [[ "$STATUS" != "401" ]]; then
+            echo "::error::Quote-specific authorization must be required for Aria sends"
+            exit 1
+          fi
+          echo 'EDITOR_ARIA_DESTINATION_CHECK=passed'
