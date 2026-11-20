@@ -28,3 +28,25 @@ test("rejects malformed editor URLs rather than distributing unsafe links",()=>{
  const html=renderExistingN5Proposal(rates).html_body;
  assert.throws(()=>quoteEditActions(html,"https://evil.example/"),/Invalid secure editor URL/);
 });
+
+
+test("actual November 20 N5 email HTML formatting receives both management buttons",()=>{
+ // Real email has encoded apostrophe and a single-line Guardrails style tag.
+ const html=[
+ '<html><head><title>Rate Card Proposal</title></head><body>',
+ '<div>Storage &amp; Inventory</div>',
+ '<div style="margin-top:55px;padding:25px;border:4px solid #1a202c;background-color:#ffffff">',
+ '<h3 style="margin:0 0 15px 0;font-size:13px">Guardrails</h3>',
+ '</div>',
+ '<div style="margin-top:55px;text-align:center;margin-bottom:20px">',
+ '<a href="https://example.test/accept">Let&#39;s Move Forward</a>',
+ '</div></body></html>'
+ ].join("\n");
+ const link="https://scapegoatquoteeditor.sean-0a8.workers.dev/?quote_id=11111111-1111-4111-8111-111111111111#access_token="+("A".repeat(43));
+ const result=quoteEditActions(html,link);
+ assert.match(result,/EDIT RATE CARD/);
+ assert.match(result,/FINALIZE RATE CARD NOW/);
+ assert.ok(result.indexOf("EDIT RATE CARD")<result.indexOf("Guardrails"));
+ assert.match(result,/Let&#39;s Move Forward/);
+ assert.match(result,/intent=finalize#access_token=/);
+});
