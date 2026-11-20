@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {newDraft,pricingIssues,preview,getForecastQuantity,changeQuantity} from "../quote-editor-core.mjs";
+import {newDraft,pricingIssues,preview,getForecastQuantity,changeQuantity,addLine} from "../quote-editor-core.mjs";
 import {renderQuoteDocument} from "../quote-release.mjs";
 
 const example={
@@ -49,8 +49,36 @@ test("optional outbound charges are projected if quantities later arrive",()=>{
  assert.equal(view.find(x=>x.field_name==="b2b_pallet_out").value,552);
  assert.deepEqual(pricingIssues(withPallets),[]);
 });
-test("missing quantity for modeled mandatory B2B order fee remains a blocker",()=>{
+test("unforecasted generated rate lines remain As needed and cannot block finalization",()=>{
  const d=draft();
  delete d.current_payload.section_4_outbound.B2B.retail_vol;
- assert.match(pricingIssues(d).join(" / "),/b2b_order_fee/);
+ assert.deepEqual(pricingIssues(d),[]);
+ const modeled=preview(d).rows.find(r=>r.field_name==="b2b_order_fee");
+ assert.equal(modeled.forecast_quantity,null);
+ assert.equal(modeled.value,null);
+ assert.equal(modeled.cost,14.96);
+});
+test("a custom service with As needed quantity is quotable without inventing usage",()=>{
+ const d=addLine(draft(),{
+   id:"custom_as_needed_01",
+   section:"section_5_misc_rows",
+   description:"Ad-hoc handling",
+   rate:45,
+   unit:"hour",
+   frequency:"per_event",
+   quantity:null
+ });
+ assert.deepEqual(pricingIssues(d),[]);
+ const row=preview(d).rows.find(x=>x.field_name==="custom_as_needed_01");
+ assert.equal(row.forecast_quantity,null);
+ assert.equal(row.value,null);
+ const rendered=renderQuoteDocument(d,1);
+ assert.equal(rendered.issues.length,0);
+ assert.equal(rendered.monthlyOther,0);
+ assert.match(rendered.html_body,/Ad-hoc handling/);
+});
+test("unreconciled Target RPP still blocks finalization independent of missing volumes",()=>{
+ const d=draft();
+ d.reprice_requested=true;
+ assert.match(pricingIssues(d).join(" "),/N3 optimization/);
 });
