@@ -130,7 +130,11 @@ export function changeQuantity(source,section,id,quantity){
 export function pricingIssues(d){
  const issues=[];if(d.reprice_requested)issues.push("Target RPP requires N3 optimization before finalization");
  if(d.calculation_status==="target_not_achieved")issues.push("Target RPP is not achievable with the locked rates or N3 downside guardrail; adjust the target before finalizing");
- const modeled=new Set(["inbound_pallet","master_carton_in","inbound_container_min","storage_pallet_base","SQFT_rate","b2c_order_fee","b2c_unit_pick","b2b_order_fee","b2b_carton_pick_fee","b2b_pallet_out","bol_fee"]);
+ // Outbound pallet picks and BOLs are optional, usage-based services.
+ // If no shipment forecast is supplied, keep their quoted rates and show
+ // "As needed" rather than inventing shipments or blocking finalization.
+ // An actual forecast will still contribute to projected revenue.
+ const modeled=new Set(["inbound_pallet","master_carton_in","inbound_container_min","storage_pallet_base","SQFT_rate","b2c_order_fee","b2c_unit_pick","b2b_order_fee","b2b_carton_pick_fee"]);
  for(const section of SECTIONS)for(const row of d.current_payload[section]||[]){
    if(modeled.has(row.field_name)&&Number(row.cost)>0&&getForecastQuantity(d,section,row.field_name).quantity===null){
      issues.push("Opportunity forecast quantity missing for "+(row.display_label||row.field_name));
