@@ -12,7 +12,7 @@ export function quoteEditActions(html,editUrl){
  const finalize=url.replace("#access_token=","&intent=finalize#access_token=");
  // N5's live HTML uses <div style="margin-top:55px;...">. Never depend
  // on the exact whitespace of the HTML generator's source template.
- const guardrail=/<div\\b[^>]*style=["'][^"']*margin-top\\s*:\\s*55px[^"']*["'][^>]*>/i;
+ const guardrail=/<div\b[^>]*style=["'][^"']*margin-top\s*:\s*55px[^"']*["'][^>]*>/i;
  const matched=guardrail.exec(html);
  if(!matched||!/Guardrails/i.test(html.slice(matched.index,matched.index+1000)))
    throw Error("N5 Guardrails section not found");
