@@ -46,9 +46,12 @@ test("BOL forecast derives from outbound shipment volume and can be changed",()=
  assert.equal(getForecastQuantity(revised,"section_4_outbound_rows","b2b_pallet_out").quantity,80);
  assert.equal(d.current_payload.section_4_outbound.PalletOut.pallet_vol,10);
 });
-test("missing custom forecast quantity blocks finalization and can be repaired",()=>{
+test("custom As needed quantity never blocks finalization and projects only when supplied",()=>{
  const d=addLine(draft(),{id:"custom_newcharge",section:"section_5_misc_rows",description:"New handling",rate:25,unit:"case",frequency:"recurring"});
- assert.match(pricingIssues(d).join(" "),/Forecast quantity missing/);
+ assert.deepEqual(pricingIssues(d),[]);
+ const unknown=preview(d).rows.find(x=>x.field_name==="custom_newcharge");
+ assert.equal(unknown.forecast_quantity,null);
+ assert.equal(unknown.value,null);
  const amended=changeQuantity(d,"section_5_misc_rows","custom_newcharge",50);
  assert.deepEqual(pricingIssues(amended),[]);
  assert.equal(preview(amended).monthly,6250);
