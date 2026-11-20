@@ -23,8 +23,8 @@ function lineView(r){
  input.addEventListener("change",()=>{try{staged({type:"edit_rate",section:r.section,field_name:r.field_name,rate:input.value},changeRate(quote,r.section,r.field_name,input.value),"Only this rate changed; no RPP redistribution.");}catch(e){notice(e.message);render()}});
  const q=el("input");q.type="number";q.min="0";q.step=".01";q.placeholder="As needed";q.value=r.forecast_quantity??"";
  q.disabled=busy||quote.status!=="draft";q.setAttribute("aria-label","Monthly forecast quantity for "+(r.display_label||r.field_name));
- q.title=r.quantity_source==="opportunity"?"Forecast derived from this opportunity. Changing it updates related volumes.":"Monthly forecast units; enter 0 if not forecast.";
- q.addEventListener("change",()=>{if(q.value===""){notice("Enter a forecast quantity or 0 for none. Existing source volumes are preserved.");return}
+ q.title=r.quantity_source==="opportunity"?"Forecast supplied by this opportunity. Editing it may affect related quantities.":"Forecast is optional: leave blank for As needed. No estimated revenue is added without a quantity.";
+ q.addEventListener("change",()=>{if(q.value===""){notice("Forecast quantity is optional. Leave missing volumes As needed; no forecast is invented. Previously supplied source volumes are preserved.");return}
  try{staged({type:"edit_quantity",section:r.section,field_name:r.field_name,quantity:q.value},changeQuantity(quote,r.section,r.field_name,q.value),"Forecast quantity updated for this opportunity. Related service volumes may also change.");}catch(e){notice(e.message);render()}}); 
  wrapper.append(input,q,el("strong","money",r.value===null?"—":fmt(r.value)));
  const buttons=el("div");const custom=Boolean(r.custom),overridden=Boolean(quote.manual_overrides[r.section+":"+r.field_name]);
@@ -58,7 +58,7 @@ function render(){
  const issues=pricingIssues(quote);
  $("forecast").textContent=issues.length?issues.join(" · "):quote.reprice_result
  ? "N3 target "+fmt(quote.reprice_result.target_rpp)+" / PEQ · Achieved "+fmt(quote.reprice_result.achieved_rpp)+" / PEQ · Recalculated "+stamp(quote.reprice_result.calculated_at)
- : "Operational revenue uses the original N5 forecast. BOL volume comes from outbound shipments. Custom recurring charges are separate from RPP.";
+ : "Forecasts are independent and optional by service. B2B carton picks do not imply pallet-out shipments or BOLs. Unforecasted inbound, storage, outbound, or VAS stays As needed and does not inflate projected revenue. Custom charges remain separate from RPP.";
  for(const section of SECTIONS){
  const box=el("section","rates"),heading=el("h2","",sectionLabels[section]);box.append(heading);
  const head=el("div","line line-head");
