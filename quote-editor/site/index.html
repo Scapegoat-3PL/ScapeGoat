@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>SCAPEGOAT.OS | Edit Opportunity Quote</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1a202c;--orange:#ff4b01;--cream:#ebe5d9;--muted:#475569}
+*{box-sizing:border-box}body{margin:0;background:var(--cream);background-image:repeating-linear-gradient(135deg,transparent 0 11px,#1a202c0c 12px,#1a202c0c 13px);color:var(--ink);font-family:"Space Grotesk",sans-serif;font-weight:500}
+main{max-width:1170px;margin:auto;padding:22px 20px 70px}
+h1,h2,button,.brand,.eyebrow,.metric-label{font-family:Oswald,Impact,sans-serif;text-transform:uppercase}
+header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid var(--ink);padding:14px 0;gap:12px;flex-wrap:wrap}
+.brand{font-size:31px;font-weight:800}.brand b{color:var(--orange)}.status{background:var(--ink);color:white;padding:8px 12px;font-size:12px;font-weight:700}
+h1{font-size:clamp(30px,5vw,52px);margin:0}.eyebrow{font-weight:800;color:var(--orange);letter-spacing:.09em}.heading{display:flex;align-items:end;justify-content:space-between;gap:15px;margin:28px 0 20px;flex-wrap:wrap}
+.sub{color:var(--muted);font-size:13px}.panel{background:#fff;border:3px solid var(--ink);box-shadow:7px 7px var(--ink);padding:22px;margin-bottom:25px}
+.panel.accent{border-left:8px solid var(--orange)}
+.row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.spread{justify-content:space-between}
+button{border:2px solid var(--ink);background:var(--ink);color:#fff;padding:10px 16px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:3px 3px #9ca3af}
+button:hover{background:var(--orange)}button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+button.alt{background:white;color:var(--ink)}button.orange{background:var(--orange);color:white}
+input,select,textarea{border:2px solid var(--ink);font:inherit;padding:9px;width:100%;background:white}
+label{display:block;font-size:13px;font-weight:700}label span{display:block;margin-bottom:5px}
+input[type=number]{font-variant-numeric:tabular-nums}
+.rpp-input{width:150px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-bottom:24px}
+.metric{padding:18px;background:#fff;border:3px solid var(--ink)}.metric-label{font-weight:800;color:var(--muted);font-size:14px}.metric-value{font:800 32px Oswald,Impact,sans-serif}
+.line{display:grid;grid-template-columns:minmax(175px,2.2fr) minmax(85px,.8fr) 105px 115px 120px 76px;gap:11px;align-items:center;padding:12px 4px;border-bottom:1px solid #cbd5e1}
+.line-head{background:#f1f5f9;text-transform:uppercase;font-size:12px;font-weight:800}.line small{display:block;color:var(--muted);font-size:11px}
+.line strong{display:block}.tag{color:#a84914;font-size:11px;font-weight:800}.money{text-align:right}
+section.rates{margin-bottom:24px}section.rates h2{margin:4px 0 10px;font-size:26px}
+.notice{background:#ffedd5;border-left:5px solid var(--orange);padding:13px 17px;font-size:13px;margin:18px 0}
+.notice.good{background:#dcfce7;border-color:#16a34a}.warning{border:2px dashed var(--orange);background:#fff7ed;padding:13px;margin-top:18px;font-size:13px}
+dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px,calc(100vw - 24px));padding:22px}
+#previewDialog{width:min(980px,calc(100vw - 22px));max-width:980px;max-height:94vh;overflow:auto;padding:14px}#previewFrame{display:block;width:100%;height:74vh;border:2px solid var(--ink);background:#fff}#previewDetails{font-size:13px;color:var(--muted);padding:8px 0 12px}dialog::backdrop{background:#1a202ca8}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wide{grid-column:1/-1}
+.actions{display:flex;gap:12px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}
+@media(max-width:790px){.metrics{grid-template-columns:1fr}.line-head{display:none}.line{grid-template-columns:1fr 1fr 1fr}.line .desc{grid-column:1/-1}}
+@media(max-width:500px){.panel{padding:13px}.line{grid-template-columns:1fr 1fr}.line .desc{grid-column:1/-1}.form-grid{grid-template-columns:1fr}.wide{grid-column:1}}
+</style></head><body><main>
+<header><div class="brand">SCAPE<b>GOAT</b>.OS</div><div class="status" id="mode">SECURE QUOTE EDITOR</div></header>
+<div class="heading"><div><div class="eyebrow">OPPORTUNITY RATE CARD</div><h1 id="title">SECURE RATE CARD</h1><div class="sub" id="revision">Use the unique editing link in your quote email</div><div class="sub" id="timeInfo"></div></div><div class="row"><button id="reload" class="alt" hidden>Reload</button><button id="preview" class="orange">Preview Revised Rate Card</button><button id="add">+ Add line item</button></div></div>
+<div class="notice" id="notice" role="status" aria-live="polite">Open your secure link to edit a quote. For a synthetic, browser-only demonstration, open this page with ?demo=1.</div>
+<div class="panel accent"><div class="row spread"><div><h2 style="margin:0">Target RPP</h2><p class="sub">Changing Target RPP runs N3 to rebalance eligible rates immediately. Manually negotiated lines remain locked; the 30% downward guardrail applies.</p></div>
+<form id="rppForm" class="row"><label><span>Target $ / PEQ</span><input id="target" class="rpp-input" required min=".01" step=".01" type="number"></label><button type="submit">Recalculate Target RPP</button></form></div></div>
+<div class="metrics"><div class="metric"><div class="metric-label">Projected RPP ($/PEQ)</div><div class="metric-value" id="achieved">—</div></div><div class="metric"><div class="metric-label">Modeled Monthly Revenue</div><div class="metric-value" id="monthly">—</div></div><div class="metric"><div class="metric-label">One-time charges</div><div class="metric-value" id="oneTime">—</div></div></div>
+<div class="panel"><div id="sections"></div><div class="row spread"><span class="sub" id="forecast"></span><div class="row"><button id="save" class="orange" disabled>Save revised draft</button><button id="publish" class="orange" disabled>Finalize Rate Card</button></div></div>
+<div class="warning"><strong>Development gate:</strong> Finalizing locks a dated quote revision. Enter any valid email to finalize and send via Aria from a private quote link. In this public demo you can prepare an addressed email draft. N3 recalculates Target RPP, and every send requires confirmation.</div></div>
+<dialog id="addDialog"><h2>Add custom charge</h2><form id="addForm"><div class="form-grid">
+<label class="wide"><span>Service description</span><input id="name" maxlength="150" required placeholder="Custom inspection"></label>
+<label><span>Category</span><select id="category"><option value="inbound">Inbound</option><option value="storage">Storage</option><option value="outbound">Outbound</option><option value="misc" selected>Miscellaneous / VAS</option></select></label>
+<label><span>Billing unit</span><input id="unit" maxlength="80" value="pallet" required></label>
+<label><span>Unit rate ($)</span><input id="rate" type="number" min="0" step=".01" required></label>
+<label><span>Billing frequency</span><select id="frequency"><option value="per_event">Per event</option><option value="recurring">Monthly recurring</option><option value="one_time">One time</option></select></label>
+<label><span>Forecast quantity (optional)</span><input id="quantity" type="number" min="0" step=".01"></label>
+<label class="wide"><span>Assumptions</span><textarea id="assumption" rows="2"></textarea></label></div>
+<div class="actions"><button type="button" id="cancel" class="alt">Cancel</button><button type="submit" class="orange">Add line</button></div></form></dialog>
+<dialog id="previewDialog" aria-label="Revised rate card preview">
+ <div class="row spread"><div><h2 style="margin:0">Revised Rate Card Preview</h2><div class="sub">Original N5 email layout · draft preview only</div></div><button type="button" id="closePreview" class="alt">Close Preview</button></div>
+ <div id="previewDetails" role="status">Client-facing layout shown below. Sending and acceptance actions are disabled.</div>
+ <iframe id="previewFrame" title="Scapegoat original proposal HTML preview" sandbox="" referrerpolicy="no-referrer"></iframe>
+ </dialog>
+<dialog id="finalizeDialog" aria-label="Finalize and deliver rate card">
+ <h2>Finalize Rate Card</h2><div class="sub" id="finalizeSummary"></div>
+ <p class="sub">Finalizing records a dated revision. Choose how you will present it.</p>
+ <div class="form-grid">
+  <label class="wide"><span>Delivery method</span><select id="deliveryMethod">
+   <option value="presentation">Download / present on screen share</option>
+   <option value="customer">Email directly to customer via Aria</option>
+   <option value="warehouse">Email to warehouse via Aria</option>
+  </select></label>
+  <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient email (editable)</span><input id="recipient" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@company.com" aria-describedby="deliveryWarning"></label>
+ </div>
+ <div class="warning" id="deliveryWarning">Enter any valid email. An Aria delivery from a private quote link requires your confirmation and is recorded. The public demo downloads an email draft instead.</div>
+ <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="openPresentation" class="alt" hidden>Open for Screen Share</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Download</button></div>
+ </dialog>
+ <script type="module" src="./quote-editor.js"></script>
+</main></body></html>

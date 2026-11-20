@@ -1,0 +1,128 @@
+name: Rate Card Editor — Cloudflare Preview Smoke Check
+on:
+  pull_request:
+    paths:
+      - 'quote-editor/**'
+      - 'wrangler.jsonc'
+      - '.github/workflows/quote-editor-cloudflare-smoke.yml'
+  workflow_dispatch:
+jobs:
+  cloudflare-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Verify dedicated Worker serves the editor (not the original Scapegoat homepage)
+        shell: bash
+        run: |
+          set -eu
+          URL='https://scapegoatquoteeditor.sean-0a8.workers.dev/?demo=1'
+          echo "Checking $URL"
+          RESPONSE=$(curl -sSL --max-time 20 -w '\nSTATUS:%{http_code}' "$URL" || true)
+          STATUS=${RESPONSE##*STATUS:}
+          BODY=${RESPONSE%STATUS:*}
+          echo "Cloudflare HTTP status: $STATUS"
+          if [[ "$STATUS" == "200" ]] && grep -Fq 'SCAPEGOAT.OS | Edit Opportunity Quote' <<< "$BODY"; then
+            echo 'EDITOR_PREVIEW_AVAILABLE=yes'
+          else
+            echo 'EDITOR_PREVIEW_AVAILABLE=no'
+            echo 'Deployment likely stale, wrong Git branch, unavailable or access-protected.'
+          fi
+          # Diagnostics only: do not break source-code CI while Cloudflare
+          # deploys from Git asynchronously or staging access is restricted.
+      - name: Verify all browser module assets are deployed
+        shell: bash
+        run: |
+          set -eu
+          BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
+          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs n3-reprice.mjs n3-engine.mjs n4-engine.mjs; do
+            STATUS=$(curl -sSL --max-time 15 -o /tmp/scapegoat-asset -w '%{http_code}' "$BASE/$ASSET" || true)
+            echo "Asset $ASSET HTTP $STATUS"
+            if [[ "$STATUS" != "200" ]]; then
+              echo "::error::Missing browser asset: $ASSET"
+              exit 1
+            fi
+          done
+      - name: Check backend route is not mistakenly returning the static homepage
+        shell: bash
+        run: |
+          STATUS=$(curl -sS -L --max-time 20 -o /tmp/scapegoat-health -w '%{http_code}' 'https://scapegoatquoteeditor.sean-0a8.workers.dev/health' || true)
+          echo "Cloudflare /health HTTP status: $STATUS"
+          if grep -Eq '"(ok|error)"' /tmp/scapegoat-health 2>/dev/null; then
+            echo 'API_ROUTE_RESPONDS_AS_JSON=yes'
+          else
+            echo 'API_ROUTE_RESPONDS_AS_JSON=no'
+            echo 'Worker routing may not be deployed or database secrets not yet configured.'
+          fi
+
+      - name: Check no-extra-project Supabase Edge Function health
+        shell: bash
+        run: |
+          set -eu
+          URL='https://dtmeaqjtreawxnlzkenq.supabase.co/functions/v1/scapegoat-quote-editor/health'
+          CODE=$(curl -sSL --max-time 18 -o /tmp/sg-edge-health -w '%{http_code}' "$URL" || true)
+          echo "Supabase Edge health HTTP $CODE"
+          cat /tmp/sg-edge-health || true
+          echo
+          if [[ "$CODE" != '200' ]]; then
+            echo 'EDGE_FUNCTION_HEALTH=not_ready'
+            exit 1
+          fi
+          echo 'EDGE_FUNCTION_HEALTH=ok'
+
+      - name: Verify Cloudflare safely rejects anonymous quote access
+        shell: bash
+        run: |
+          set -eu
+          BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
+          HEALTH=$(curl -sSL --max-time 15 -o /tmp/sg-proxy-health -w '%{http_code}' "$BASE/health" || true)
+          UNAUTH=$(curl -sSL --max-time 15 -o /tmp/sg-proxy-unauth -w '%{http_code}' "$BASE/api/quotes/11111111-1111-4111-8111-111111111111" || true)
+          echo "EDITOR_BACKEND_PROXY_HEALTH_HTTP=$HEALTH"
+          echo "EDITOR_UNAUTHORIZED_QUOTE_HTTP=$UNAUTH"
+          cat /tmp/sg-proxy-health || true
+          echo
+          cat /tmp/sg-proxy-unauth || true
+          echo
+          if [[ "$HEALTH" == '200' && "$UNAUTH" == '401' ]]; then
+            echo 'EDITOR_API_AUTH_CHECK=passed'
+          else
+            echo 'EDITOR_API_AUTH_CHECK=pending_deployment_or_configuration'
+          fi
+
+      - name: Confirm deployed recipient email field is editable
+        shell: bash
+        run: |
+          set -eu
+          URL='https://scapegoatquoteeditor.sean-0a8.workers.dev/?demo=1'
+          for i in 1 2 3 4 5 6; do
+            curl -fsSL --max-time 15 "$URL" -o /tmp/sg-rate-card-page
+            curl -fsSL --max-time 15 'https://scapegoatquoteeditor.sean-0a8.workers.dev/quote-editor.js' -o /tmp/sg-rate-card-js
+            if grep -q 'id="recipient" type="email"' /tmp/sg-rate-card-page &&
+               ! grep -Eq 'id="recipient"[^>]+readonly' /tmp/sg-rate-card-page &&
+               grep -Fq 'recipient_email:recipientEmail,recipient_confirmed:true' /tmp/sg-rate-card-js; then
+              echo 'EDITOR_RECIPIENT_INPUT=editable'
+              exit 0
+            fi
+            sleep 5
+          done
+          echo '::error::Cloudflare has not deployed the editable recipient field yet'
+          exit 1
+
+      - name: Confirm public demo and secure finalized send behavior are distinct
+        shell: bash
+        run: |
+          set -eu
+          curl -fsSL --max-time 20 'https://scapegoatquoteeditor.sean-0a8.workers.dev/quote-editor.js' -o /tmp/sg-delivery-js
+          for expected in 'Finalize & Send Rate Card' 'downloadDemoEmailDraft' 'recipient_email:recipientEmail,recipient_confirmed:true'; do
+            if ! grep -Fq "$expected" /tmp/sg-delivery-js; then
+              echo "::error::Expected latest rate card delivery logic not deployed: $expected"
+              exit 1
+            fi
+          done
+          STATUS=$(curl -sSL --max-time 20 -o /tmp/sg-delivery-unauthorized -w '%{http_code}' 'https://scapegoatquoteeditor.sean-0a8.workers.dev/api/quotes/11111111-1111-4111-8111-111111111111/deliver' -X POST -H 'Content-Type: application/json' --data '{"channel":"warehouse","recipient_email":"test@example.com","recipient_confirmed":true,"expected_revision":2}' || true)
+          echo "UNAUTHENTICATED_DELIVERY_HTTP=$STATUS"
+          if [[ "$STATUS" != "401" ]]; then
+            echo "::error::Quote-specific authorization must be required for Aria sends"
+            exit 1
+          fi
+          echo 'EDITOR_ARIA_DESTINATION_CHECK=passed'

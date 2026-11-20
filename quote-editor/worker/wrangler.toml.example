@@ -1,0 +1,8 @@
+name = "scapegoat-opportunity-quote-editor-staging"
+main = "./index.mjs"
+compatibility_date = "2026-11-18"
+# Run only on a separate staging workers.dev or preview domain.
+# Keep existing production site and domain routing unchanged.
+[vars]
+EDITOR_ORIGIN = "https://scapegoat3plwarehouserates.com"
+# Add these as Cloudflare secrets, NEVER committed: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INTERNAL_API_KEY
