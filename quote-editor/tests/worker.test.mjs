@@ -173,3 +173,36 @@ test("quote-specific bearer token permits one confirmed arbitrary recipient with
  {authorization:"Bearer wrong"}),{...env,ENABLE_EMAIL_DELIVERY:"true"});
  assert.equal(unknownToken.status,401);
 });
+
+
+test("server finalizes a quote even when optional BOL and pallet-out volumes are As needed",async()=>{
+ const modeled={
+  section_1_static:{Hwk_Id:"HWK-AS-NEEDED",selected_warehouse_name:"Example Warehouse",Warehouse_rpp:50,storage_pallet_equivalent:25},
+  section_2_inbound:{inbound_type:"Palletized",has_pallet_in:true,pallet_avg_inbound_qty_per_month:1,pallet_avg_qty_per_inbound:1},
+  section_3_storage:{Storage_Qty:25,storage_pallet_equivalent:25,storage_pallet_base:56.29},
+  section_4_outbound:{DTC:{dtc_vol:0},B2B:{retail_vol:23,cases_per_order:3,b2b_order_fee:14.96,b2b_carton_pick_fee:1.79,b2b_pallet_out:12,bol_fee:8}},
+  section_5_misc:{monthly_minimum:1600},
+  section_2_inbound_rows:[{field_name:"inbound_pallet",cost:36.3}],
+  section_3_storage_rows:[{field_name:"storage_pallet_base",cost:56.29}],
+  section_4_outbound_rows:[{field_name:"b2b_order_fee",cost:14.96},{field_name:"b2b_carton_pick_fee",cost:1.79},{field_name:"b2b_pallet_out",cost:12},{field_name:"bol_fee",cost:8}],
+  section_5_misc_rows:[{field_name:"monthly_minimum",cost:1600}]
+ };
+ let response=await worker.fetch(request("/api/internal/quotes","POST",{
+  hwk_id:"HWK-AS-NEEDED",warehouse_id:warehouseId,baseline_payload:modeled
+ },{"x-internal-api-key":env.INTERNAL_API_KEY}),env);
+ assert.equal(response.status,201);
+ const created=await response.json();
+ const bearer={authorization:"Bearer "+new URL(created.edit_url).hash.replace("#access_token=","")};
+ response=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",
+  {expected_revision:1,delivery_method:"presentation"},bearer),{...env,ENABLE_FINALIZATION:"true"});
+ assert.equal(response.status,200);
+ const final=await response.json();
+ assert.equal(final.status,"finalized");
+ assert.equal(final.revision,2);
+ assert.match(final.final_html,/FINALIZED RATE CARD/);
+ assert.doesNotMatch(final.final_html,/EDIT RATE CARD/);
+ const forecast=final.draft.reconciled_totals;
+ assert.ok(Number.isFinite(forecast.operational));
+ // Neither unforecasted optional service is assigned a made-up quantity.
+ assert.ok(final.draft.current_payload.section_4_outbound.PalletOut==null);
+});
