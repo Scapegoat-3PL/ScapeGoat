@@ -82,3 +82,46 @@ test("unreconciled Target RPP still blocks finalization independent of missing v
  d.reprice_requested=true;
  assert.match(pricingIssues(d).join(" "),/N3 optimization/);
 });
+
+
+test("known B2B case-pick forecast does NOT imply a pallet-out or BOL shipment forecast",()=>{
+ const d=draft();
+ const result=preview(d);
+ const order=result.rows.find(r=>r.field_name==="b2b_order_fee");
+ const casePick=result.rows.find(r=>r.field_name==="b2b_carton_pick_fee");
+ const pallets=result.rows.find(r=>r.field_name==="b2b_pallet_out");
+ const bol=result.rows.find(r=>r.field_name==="bol_fee");
+ assert.equal(order.forecast_quantity,23);
+ assert.equal(casePick.forecast_quantity,69);
+ assert.equal(casePick.value,123.51);
+ assert.equal(pallets.forecast_quantity,null);
+ assert.equal(pallets.value,null);
+ assert.equal(bol.forecast_quantity,null);
+ assert.equal(bol.value,null);
+ assert.deepEqual(pricingIssues(d),[]);
+ assert.equal(renderQuoteDocument(d,1).issues.length,0);
+});
+test("missing forecast for inbound, storage, and outbound keeps every rate quotable",()=>{
+ const d=draft();
+ delete d.current_payload.section_2_inbound.pallet_avg_inbound_qty_per_month;
+ delete d.current_payload.section_2_inbound.pallet_avg_qty_per_inbound;
+ delete d.current_payload.section_3_storage.Storage_Qty;
+ delete d.current_payload.section_3_storage.storage_pallet_equivalent;
+ delete d.current_payload.section_1_static.storage_pallet_equivalent;
+ delete d.current_payload.section_4_outbound.B2B.retail_vol;
+ delete d.current_payload.section_4_outbound.B2B.cases_per_order;
+ const result=preview(d);
+ for(const id of ["inbound_pallet","storage_pallet_base","b2b_order_fee","b2b_carton_pick_fee","b2b_pallet_out","bol_fee"]){
+  const row=result.rows.find(r=>r.field_name===id);
+  assert.equal(row.forecast_quantity,null,id+" quantity should be As needed");
+  assert.equal(row.value,null,id+" projected revenue should not be invented");
+  assert.ok(row.cost>0,id+" quoted rate must remain");
+ }
+ assert.deepEqual(pricingIssues(d),[]);
+ const doc=renderQuoteDocument(d,1);
+ assert.deepEqual(doc.issues,[]);
+ assert.equal(doc.monthlyOperational,0);
+ assert.equal(doc.projectedRpp,null);
+ assert.match(doc.html_body,/storage pallet base/i);
+ assert.match(doc.html_body,/b2b carton pick fee/i);
+});
