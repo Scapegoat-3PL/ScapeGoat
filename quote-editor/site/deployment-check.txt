@@ -1,0 +1,3 @@
+ScapeGoat Opportunity Rate Card Editor — isolated Cloudflare Workers preview
+Source branch: feature/opportunity-quote-editor
+Preview only. No production quoting, email, or Supabase writes are enabled.

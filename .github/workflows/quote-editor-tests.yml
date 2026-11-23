@@ -1,0 +1,24 @@
+name: Opportunity Quote Editor — Isolated Tests
+on:
+  pull_request:
+    paths:
+      - 'quote-editor/**'
+      - '.github/workflows/quote-editor-tests.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate JavaScript syntax
+        run: |
+          node --check quote-editor/quote-editor.js
+          node --check quote-editor/quote-editor-core.mjs
+          node --check quote-editor/worker/index.mjs
+      - name: Test isolated pricing editor
+        run: node --test quote-editor/tests/*.test.mjs
