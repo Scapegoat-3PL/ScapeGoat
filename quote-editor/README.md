@@ -17,7 +17,7 @@
 
 Editable quantities are tied to the opportunity's source volume model. Example: BOL forecast = outbound pallet shipment count; changing BOL shipments updates related outbound pallet quantities. "Projected RPP ($/PEQ)" excludes custom/administrative charges and monthly forecast shows them separately.
 
-The existing N5 proposal HTML template is reused in the browser and server. Its live acceptance link is disabled in preview/finalized presentation files to avoid a stray CRM update.
+The existing N5 proposal HTML template is reused in the browser and server. Its acceptance link is disabled in draft previews, but restored in finalized customer PDFs and HTML emails.
 
 ## Remaining production gates
 
@@ -56,3 +56,12 @@ No new billable database branch or project. Existing Supabase, Cloudflare and Gi
 **User acceptance test still required** on an actual newly generated quote: check that warehouse email arrives with the two controls, edit one line, change Target RPP, preview N5, finalize, download/screenshare, then send one approved recipient channel through Aria. Review all displayed totals, recipient identity and Gmail sent-status before broad customer rollout.
 
 **Costs:** No paid staging branch, external service or added database. Existing Supabase/Cloudflare/n8n/Gmail service plan usage limits still apply. GitHub draft PR remains for code review and should not be merged into the original static-site main without explicit approval.
+
+## November 23, 2026 — Finalized PDF and working acceptance
+
+- Finalized downloads are now branded, multi-page PDF files instead of HTML. PDF generation uses a locally bundled MIT-licensed jsPDF build with no paid service.
+- Quoted service rates, 'As needed' entries, N5-reconciled forecast amounts, warehouse, Hawk ID, issue date, and revision are displayed.
+- The PDF's clickable LET'S MOVE FORWARD action points to the already-active Hawkish CRM Lead Cadence webhook. Its existing n8n workflow is unchanged.
+- Finalized HTML sent through Aria retains the same original acceptance link. Draft previews and demo PDFs remain non-actionable.
+- Prior finalized quote revisions remain immutable. Previously sent emails cannot be changed retroactively; downloading a fresh PDF from the editor presents the restored action.
+- Real PDF-generation tests and Cloudflare deployment checks passed. There is no new paid infrastructure or change to N3/N4/N5 rate calculations.
