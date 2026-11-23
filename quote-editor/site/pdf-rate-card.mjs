@@ -36,7 +36,7 @@ export function createRateCardPdf(quote,revision,{jsPDF,enableAcceptance=false}=
  const rendered=renderQuoteDocument(quote,revision,{issuedAt:quote.finalized_at,disableActions:false});
  if(rendered.issues.length)throw Error("Unresolved rate card pricing checks");
  const data=quote.current_payload||{},s1=data.section_1_static||{},rows=preview(quote).rows;
- const doc=new Pdf({unit:"pt",format:"letter",compress:true,putOnlyUsedFonts:true});
+ const doc=new Pdf({unit:"pt",format:"letter",compress:false,putOnlyUsedFonts:true});
  const inner=PAGE.w-PAGE.left-PAGE.right;let y=PAGE.top;
  const setText=(size=10,bold=false,color=INK)=>{
   doc.setFont("helvetica",bold?"bold":"normal");doc.setFontSize(size);doc.setTextColor(...color);
