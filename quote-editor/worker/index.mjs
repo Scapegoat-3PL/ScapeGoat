@@ -160,7 +160,7 @@ export default {async fetch(req,env){
    const next=structuredClone(stored.draft_payload);
    next.status="finalized";next.finalized_at=issuedAt;next.issued_revision=stored.revision+1;
    let prepared;
-   try{prepared=renderQuoteDocument(next,stored.revision+1,{issuedAt,disableActions:true})}
+   try{prepared=renderQuoteDocument(next,stored.revision+1,{issuedAt,disableActions:false})}
    catch(error){return json({error:"N5 reconciliation failed; cannot finalize"},422,allowed)}
    if(prepared.issues.length||!Number.isFinite(prepared.monthlyTotal))return json({error:"Pricing needs reconciliation"},422,allowed);
    next.reconciled_totals={operational:prepared.monthlyOperational,custom_monthly:prepared.monthlyOther,projected_monthly:prepared.monthlyTotal,one_time:prepared.oneTime,rpp:prepared.projectedRpp};
