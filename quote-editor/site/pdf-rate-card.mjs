@@ -110,7 +110,9 @@ export function createRateCardPdf(quote,revision,{jsPDF,enableAcceptance=false}=
   y+=29;
  };
  const row=r=>{
-  const label=clean(r.display_label||r.field_name?.replaceAll("_"," ")||"Service");
+  const label=clean(r.display_label||r.field_name?.replaceAll("_"," ")||"Service")
+   .split(" ").map(word=>/^(b2b|b2c|bol|vas|edi|it|sku|sqft)$/i.test(word)
+      ?word.toUpperCase():word.charAt(0).toUpperCase()+word.slice(1)).join(" ");
   const notes=clean(r.assumption||"");
   setText(9,true);const a=doc.splitTextToSize(label,228);
   setText(7.6,false,SLATE);const b=notes?doc.splitTextToSize(notes,228).slice(0,3):[];
