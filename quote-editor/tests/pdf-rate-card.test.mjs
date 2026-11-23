@@ -8,7 +8,7 @@ import {createRateCardPdf,pdfFilename,acceptanceUrl} from "../site/pdf-rate-card
 const lib=readFileSync(new URL("../site/vendor/jspdf.umd.min.js",import.meta.url),"utf8");
 function jsPdfConstructor(){
  const box={exports:{},module:{exports:{}},TextEncoder,TextDecoder,Uint8Array,
-  ArrayBuffer,Buffer,console,setTimeout,clearTimeout,atob,btoa};
+  ArrayBuffer,Buffer,console,setTimeout,clearTimeout,atob,btoa,navigator:{userAgent:"Node.js"}};
  box.window=box;box.self=box;box.globalThis=box;
  runInNewContext(lib,box,{timeout:20000});
  const ctor=box.exports.jsPDF||box.module.exports.jsPDF||box.jspdf?.jsPDF;
