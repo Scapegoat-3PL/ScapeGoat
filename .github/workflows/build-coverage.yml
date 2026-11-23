@@ -1,0 +1,44 @@
+name: Build freight coverage pages
+
+on:
+  push:
+    branches:
+      - main
+      - feature/freight-coverage-map
+    paths:
+      - 'freight-coverage/**'
+      - '.github/workflows/build-coverage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out website repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install the TypeScript compiler
+        run: npm install --prefix freight-coverage --no-save --no-package-lock typescript@5.6.3
+      - name: Build and validate coverage pages
+        run: npm test --prefix freight-coverage
+      - name: Publish generated directory to this branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf coverage
+          cp -R freight-coverage/dist/coverage coverage
+          git add coverage
+          if git diff --cached --quiet; then
+            echo 'No changes to the generated coverage pages.'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Build freight coverage static pages'
+          git push origin "HEAD:${GITHUB_REF_NAME}"

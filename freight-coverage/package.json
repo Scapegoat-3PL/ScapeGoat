@@ -1,0 +1,1 @@
+{"name":"scapegoat-freight-coverage","version":"1.0.0","private":true,"type":"module","description":"Static, SEO-ready four-level U.S. freight map for ScapeGoat GitHub Pages","scripts":{"build":"tsc -p tsconfig.json && node scripts/build.mjs","test":"npm run build && node --test tests/*.test.mjs"},"engines":{"node":">=20"}}
