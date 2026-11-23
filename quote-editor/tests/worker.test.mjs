@@ -92,7 +92,7 @@ test("finalize locks and timestamps a reconciled presentation without sending em
  assert.ok(final.finalized_at);
  assert.match(final.final_html,/FINALIZED RATE CARD/);
  assert.match(final.final_html,/Projected Charges/);
- assert.doesNotMatch(final.final_html,/<a\s+href=/);
+ assert.match(final.final_html,/href="https:\/\/seanskin\.app\.n8n\.cloud\/webhook\/bf36f171-cfe7-4262-a74c-52afac05c668\?hwk_id=/);
  assert.equal(final.draft.reconciled_totals.operational,5080);
  const retry=await worker.fetch(request("/api/quotes/"+created.quote_id+"/finalize","POST",{expected_revision:2,delivery_method:"presentation"},bearer),enabled);
  assert.equal(retry.status,409);
