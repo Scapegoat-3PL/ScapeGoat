@@ -65,14 +65,15 @@ dialog{border:3px solid var(--ink);box-shadow:8px 8px var(--ink);width:min(560px
  <p class="sub">Finalizing records a dated revision. Choose how you will present it.</p>
  <div class="form-grid">
   <label class="wide"><span>Delivery method</span><select id="deliveryMethod">
-   <option value="presentation">Download / present on screen share</option>
+   <option value="presentation">Download PDF / present on screen share</option>
    <option value="customer">Email directly to customer via Aria</option>
    <option value="warehouse">Email to warehouse via Aria</option>
   </select></label>
   <label class="wide" id="recipientLabel" hidden><span id="recipientName">Recipient email (editable)</span><input id="recipient" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="name@company.com" aria-describedby="deliveryWarning"></label>
  </div>
- <div class="warning" id="deliveryWarning">Enter any valid email. An Aria delivery from a private quote link requires your confirmation and is recorded. The public demo downloads an email draft instead.</div>
- <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="openPresentation" class="alt" hidden>Open for Screen Share</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Download</button></div>
+ <div class="warning" id="deliveryWarning">Enter any valid email. An Aria delivery from a private quote link requires your confirmation and is recorded. The public demo downloads a PDF for presentation or an addressed email draft.</div>
+ <div class="actions"><button type="button" id="cancelFinalize" class="alt">Cancel</button><button type="button" id="openPresentation" class="alt" hidden>Open for Screen Share</button><button type="button" id="confirmFinalize" class="orange">Finalize &amp; Download PDF</button></div>
  </dialog>
+ <script src="./vendor/jspdf.umd.min.js"></script>
  <script type="module" src="./quote-editor.js"></script>
 </main></body></html>
