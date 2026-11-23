@@ -35,7 +35,7 @@ jobs:
         run: |
           set -eu
           BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
-          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs n3-reprice.mjs n3-engine.mjs n4-engine.mjs; do
+          for ASSET in quote-editor.js quote-editor-core.mjs quote-release.mjs n5-proposal-renderer.mjs n3-reprice.mjs n3-engine.mjs n4-engine.mjs pdf-rate-card.mjs vendor/jspdf.umd.min.js; do
             STATUS=$(curl -sSL --max-time 15 -o /tmp/scapegoat-asset -w '%{http_code}' "$BASE/$ASSET" || true)
             echo "Asset $ASSET HTTP $STATUS"
             if [[ "$STATUS" != "200" ]]; then
@@ -126,3 +126,21 @@ jobs:
             exit 1
           fi
           echo 'EDITOR_ARIA_DESTINATION_CHECK=passed'
+
+      - name: Verify customer PDF download and finalized acceptance CTA deployed
+        shell: bash
+        run: |
+          set -eu
+          BASE='https://scapegoatquoteeditor.sean-0a8.workers.dev'
+          curl -fsSL --max-time 20 "$BASE/quote-editor.js" -o /tmp/editor-js
+          curl -fsSL --max-time 20 "$BASE/pdf-rate-card.mjs" -o /tmp/rate-pdf
+          curl -fsSL --max-time 20 "$BASE/" -o /tmp/editor-html
+          grep -Fq 'createRateCardPdf' /tmp/editor-js
+          grep -Fq 'pdfFilename' /tmp/editor-js
+          grep -Fq 'LET' /tmp/rate-pdf
+          grep -Fq 'vendor/jspdf.umd.min.js' /tmp/editor-html
+          if grep -Fq 'a.download="Scapegoat-Rate-Card-" ' /tmp/editor-js; then
+            echo '::error::Legacy HTML download is still deployed'
+            exit 1
+          fi
+          echo 'PDF_DOWNLOAD_AND_ACCEPTANCE=ready'
