@@ -2,6 +2,7 @@ import {SECTIONS,newDraft,changeRate,resetRate,addLine,removeLine,targetRpp,prev
 import {renderExistingN5Proposal} from "./n5-proposal-renderer.mjs";
 import {renderQuoteDocument} from "./quote-release.mjs";
 import {repriceQuote} from "./n3-reprice.mjs";
+import {createRateCardPdf,pdfFilename,acceptanceUrl} from "./pdf-rate-card.mjs";
 const $=id=>document.getElementById(id),sectionLabels={section_2_inbound_rows:"Inbound",section_3_storage_rows:"Storage",section_4_outbound_rows:"Outbound",section_5_misc_rows:"Miscellaneous / VAS"};
 const fmt=v=>v===null||v===undefined?"Not projected":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(v);
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n};
@@ -179,19 +180,49 @@ $("closePreview").addEventListener("click",()=>$("previewDialog").close());
 
 
 function finalizedPresentationHtml(){
- const n5=renderQuoteDocument(quote,rev,{issuedAt:quote.finalized_at||new Date().toISOString()});
- const doc=new DOMParser().parseFromString(n5.html_body,"text/html");
- doc.querySelectorAll("script,form").forEach(node=>node.remove());
- doc.querySelectorAll("a").forEach(node=>{node.removeAttribute("href");node.style.pointerEvents="none";});
- doc.querySelectorAll("*").forEach(node=>{for(const attr of [...node.attributes])if(/^on/i.test(attr.name))node.removeAttribute(attr.name)});
+ const n5=savedFinalHtml||renderQuoteDocument(quote,rev,{
+   issuedAt:quote.finalized_at||new Date().toISOString(),disableActions:mode!=="live"
+ }).html_body;
+ const doc=new DOMParser().parseFromString(n5,"text/html");
+ doc.querySelectorAll("script,form").forEach(n=>n.remove());
+ const allowed=mode==="live"&&quote.status==="finalized"?acceptanceUrl(quote.hwk_id):null;
+ let actionExists=false;
+ doc.querySelectorAll("a").forEach(node=>{
+  if(allowed&&node.getAttribute("href")===allowed){
+   node.setAttribute("target","_blank");node.setAttribute("rel","noopener noreferrer");
+   actionExists=true;
+  }else{node.removeAttribute("href");node.style.pointerEvents="none"}
+ });
+ // Finalized quotes issued under the older HTML-only release lost the CTA
+ // because their anchors were transformed into spans; restore ONLY the
+ // known Hawkish acceptance link, never arbitrary links.
+ if(allowed&&!actionExists){
+  const span=[...doc.querySelectorAll("span")].find(n=>n.textContent?.trim()==="Let's Move Forward");
+  if(span){
+   const a=doc.createElement("a");
+   for(const attr of [...span.attributes])a.setAttribute(attr.name,attr.value);
+   a.textContent="Let's Move Forward";a.setAttribute("href",allowed);
+   a.setAttribute("target","_blank");a.setAttribute("rel","noopener noreferrer");
+   span.replaceWith(a);
+  }
+ }
+ doc.querySelectorAll("*").forEach(node=>{
+  for(const attr of [...node.attributes])if(/^on/i.test(attr.name))node.removeAttribute(attr.name);
+ });
  return "<!doctype html>\n"+doc.documentElement.outerHTML;
 }
 function exportPresentation(download=true){
- const blob=new Blob([savedFinalHtml||finalizedPresentationHtml()],{type:"text/html;charset=utf-8"});
+ if(download){
+  try{
+   const doc=createRateCardPdf(quote,rev,{enableAcceptance:mode==="live"});
+   doc.save(pdfFilename(quote,rev));
+   notice("Finalized PDF downloaded. Open it to view the customer-ready rate card.",true);
+  }catch(e){notice("PDF download failed: "+e.message)}
+  return;
+ }
+ const blob=new Blob([finalizedPresentationHtml()],{type:"text/html;charset=utf-8"});
  const href=URL.createObjectURL(blob);
- const a=document.createElement("a");a.href=href;
- if(download){a.download="Scapegoat-Rate-Card-"+String(quote.hwk_id).replace(/[^a-z0-9-]/gi,"-")+"-Rev"+rev+".html";a.click();}
- else{a.target="_blank";a.rel="noopener";a.click();}
+ const a=document.createElement("a");a.href=href;a.target="_blank";a.rel="noopener noreferrer";a.click();
  setTimeout(()=>URL.revokeObjectURL(href),30000);
 }
 $("publish").addEventListener("click",()=>{
@@ -229,7 +260,7 @@ function updateRecipientDelivery(methodChanged=false){
         ? "This is the address stored in Scapegoat. You'll confirm the recipient before Aria sends."
         : "Manually entered address: not independently verified by Scapegoat. Review it carefully; Aria will send only after your confirmation.";
  $("confirmFinalize").textContent=destination==="presentation"
-  ? (quote?.status==="finalized"?"Download Final Rate Card":"Finalize & Download")
+  ? (quote?.status==="finalized"?"Download Final PDF":"Finalize & Download PDF")
   : mode==="demo"
     ? (quote?.status==="draft"?"Finalize & Prepare Email Draft":"Download Addressed Email Draft")
     : quote?.status==="draft"?"Finalize & Send Rate Card":"Send Final Rate Card";
@@ -256,7 +287,7 @@ $("confirmFinalize").addEventListener("click",async()=>{
    if(mode==="demo"){
      quote.status="finalized";quote.finalized_at=new Date().toISOString();
      $("finalizeDialog").close();render();exportPresentation(true);
-     notice("Demo quote finalized locally. Presentation downloaded; no email sent.",true);return;
+     notice("Demo quote finalized locally. PDF downloaded; no email sent.",true);return;
    }
    if(mode!=="live")return;
    busy=true;render();
@@ -266,7 +297,7 @@ $("confirmFinalize").addEventListener("click",async()=>{
      verifiedRecipients=result.delivery_recipients||null;deliveryReasons=result.delivery_reasons||null;
      deliveryEnabled=result.delivery_enabled===true;
      $("finalizeDialog").close();exportPresentation(true);
-     notice("Finalized revision "+rev+" at "+stamp(quote.finalized_at)+". Presentation downloaded; no email sent.",true);
+     notice("Finalized revision "+rev+" at "+stamp(quote.finalized_at)+". PDF downloaded; no email sent.",true);
    }catch(e){notice("Finalization failed: "+e.message)}
    busy=false;render();return;
  }
